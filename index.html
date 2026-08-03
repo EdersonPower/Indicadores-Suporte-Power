@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <title>Power Analytics | NPS Atendimento</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-mark">P</div><div><strong>Power Analytics</strong><span>Gestão de atendimento</span></div></div>
+      <nav>
+        <button class="nav-item active" data-section="dashboard">▦ <span>Dashboard</span></button>
+        <button class="nav-item" data-section="atendentes">◎ <span>Atendentes</span></button>
+        <button class="nav-item" data-section="comparativo">⇄ <span>Comparativos</span></button>
+        <button class="nav-item" data-section="diagnostico">✓ <span>Diagnóstico</span></button>
+      </nav>
+      <div class="sidebar-foot"><span class="status-dot"></span><span>Leitura local e segura</span></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn" aria-label="Abrir menu">☰</button>
+        <div class="heading"><p>Power System</p><h1 id="pageTitle">Dashboard NPS</h1></div>
+        <div class="actions">
+          <select id="periodSelect" class="control"></select>
+          <label class="upload-btn">Carregar Excel<input id="fileInput" type="file" accept=".xlsx,.xls" multiple hidden></label>
+        </div>
+      </header>
+
+      <section id="dashboardSection" class="page-section active">
+        <div class="hero">
+          <div><span class="eyebrow">VISÃO EXECUTIVA</span><h2 id="periodTitle">Carregando dados...</h2><p id="periodSubtitle">Análise automática das abas NPS mensais e trimestral.</p></div>
+          <div class="hero-badge" id="sourceBadge">Excel</div>
+        </div>
+
+        <div class="kpi-grid">
+          <article class="kpi-card"><div class="kpi-icon">☎</div><div><span>Total de atendimentos</span><strong id="kpiCalls">—</strong><small id="deltaCalls">Período selecionado</small></div></article>
+          <article class="kpi-card"><div class="kpi-icon">★</div><div><span>Total de avaliações</span><strong id="kpiRatings">—</strong><small id="deltaRatings">Período selecionado</small></div></article>
+          <article class="kpi-card"><div class="kpi-icon">%</div><div><span>Taxa de avaliação</span><strong id="kpiRate">—</strong><small>Meta sugerida: 35%</small></div></article>
+          <article class="kpi-card"><div class="kpi-icon">♥</div><div><span>Nota média final</span><strong id="kpiScore">—</strong><small>Escala de 1 a 5</small></div></article>
+          <article class="kpi-card accent"><div class="kpi-icon">♛</div><div><span>Destaque do período</span><strong id="kpiBest">—</strong><small id="kpiBestDetail">Maior índice combinado</small></div></article>
+        </div>
+
+        <div class="chart-grid">
+          <article class="panel wide"><div class="panel-head"><div><h3>Evolução mensal</h3><p>Atendimentos e avaliações por mês</p></div></div><div class="chart-wrap"><canvas id="monthlyChart"></canvas></div></article>
+          <article class="panel"><div class="panel-head"><div><h3>Ranking de atendimentos</h3><p>Volume por atendente</p></div></div><div class="chart-wrap"><canvas id="rankingChart"></canvas></div></article>
+          <article class="panel"><div class="panel-head"><div><h3>Participação nas avaliações</h3><p>Distribuição do total avaliado</p></div></div><div class="chart-wrap"><canvas id="shareChart"></canvas></div></article>
+          <article class="panel"><div class="panel-head"><div><h3>Qualidade por atendente</h3><p>Média final das notas</p></div></div><div class="chart-wrap"><canvas id="scoreChart"></canvas></div></article>
+          <article class="panel wide"><div class="panel-head"><div><h3>Resumo da equipe</h3><p>Indicadores consolidados do trimestre</p></div><input id="searchAgent" class="control small" placeholder="Buscar atendente"></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Atendente</th><th>Atendimentos</th><th>Avaliações</th><th>Taxa</th><th>Média</th></tr></thead><tbody id="rankingBody"></tbody></table></div></article>
+        </div>
+      </section>
+
+      <section id="atendentesSection" class="page-section">
+        <div class="section-title"><span class="eyebrow">ANÁLISE INDIVIDUAL</span><h2>Desempenho por atendente</h2></div>
+        <div class="panel"><div class="panel-head"><select id="agentSelect" class="control"></select><p id="agentSummary"></p></div><div class="chart-wrap large"><canvas id="agentChart"></canvas></div></div>
+      </section>
+
+      <section id="comparativoSection" class="page-section">
+        <div class="section-title"><span class="eyebrow">HISTÓRICO</span><h2>Comparativo entre trimestres</h2></div>
+        <div class="panel"><div class="chart-wrap large"><canvas id="comparisonChart"></canvas></div></div>
+        <div class="panel table-wrap"><table><thead><tr><th>Período</th><th>Atendimentos</th><th>Avaliações</th><th>Taxa</th><th>Nota média</th></tr></thead><tbody id="comparisonBody"></tbody></table></div>
+      </section>
+
+      <section id="diagnosticoSection" class="page-section">
+        <div class="section-title"><span class="eyebrow">VALIDAÇÃO</span><h2>Diagnóstico das planilhas</h2></div>
+        <div id="diagnosticCards" class="diagnostic-grid"></div>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
