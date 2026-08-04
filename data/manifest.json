@@ -1,0 +1,14 @@
+[
+  {
+    "path": "data/2026/1trim2026.xlsx",
+    "label": "1º Trimestre 2026"
+  },
+  {
+    "path": "data/2026/2trim2026.xlsx",
+    "label": "2º Trimestre 2026"
+  },
+  {
+    "path": "data/2026/3trim2026.xlsx",
+    "label": "3º Trimestre 2026 (parcial)"
+  }
+]
