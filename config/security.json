@@ -1,8 +1,0 @@
-{
-  "managerPasswordHash": "2d2fb8d77947a348fa925fe52e22a82bb261baa2bd8c4a10e26bbae9f4811a75",
-  "protectedPages": [
-    "manager",
-    "settings"
-  ],
-  "sessionKey": "powerAnalyticsManagerAuth"
-}
