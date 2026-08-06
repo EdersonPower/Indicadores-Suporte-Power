@@ -1,0 +1,100 @@
+{
+  "employees": [
+    {
+      "id": "1005",
+      "ramal": "1005",
+      "name": "Dayane",
+      "displayName": "Dayane",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/dayane.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 25,
+        "final": 4.9,
+        "box": 500
+      }
+    },
+    {
+      "id": "1002",
+      "ramal": "1002",
+      "name": "Luiz",
+      "displayName": "Luiz",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/luiz.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 25,
+        "final": 4.9,
+        "box": 500
+      }
+    },
+    {
+      "id": "1004",
+      "ramal": "1004",
+      "name": "Lukas",
+      "displayName": "Lukas",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/lukas.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 25,
+        "final": 4.9,
+        "box": 500
+      }
+    },
+    {
+      "id": "1013",
+      "ramal": "1013",
+      "name": "Lucas",
+      "displayName": "Lucas",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/lucas.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 25,
+        "final": 4.9,
+        "box": 500
+      }
+    },
+    {
+      "id": "1001",
+      "ramal": "1001",
+      "name": "Gabriel",
+      "displayName": "Gabriel",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/gabriel.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 25,
+        "final": 4.9,
+        "box": 500
+      }
+    },
+    {
+      "id": "1003",
+      "ramal": "1003",
+      "name": "Ryan",
+      "displayName": "Ryan",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/ryan.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 25,
+        "final": 4.9,
+        "box": 500
+      }
+    }
+  ]
+}
