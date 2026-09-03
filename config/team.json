@@ -95,6 +95,22 @@
         "final": 4.9,
         "box": 500
       }
+    },
+    {
+      "id": "1002",
+      "ramal": "1002",
+      "name": "Thamires",
+      "displayName": "Thamires",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/Thamires.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 30,
+        "final": 4.9,
+        "box": 500
+      }
     }
   ]
 }
