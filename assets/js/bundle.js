@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 const monthOrder={Jan:1,Fev:2,Mar:3,Abr:4,Mai:5,Jun:6,Jul:7,Ago:8,Set:9,Out:10,Nov:11,Dez:12};
-const state={periods:[],period:null,month:null,charts:{},teamConfig:{employees:[]},settings:{}};
+const state={periods:[],period:null,month:null,charts:{},teamConfig:{employees:[]},peopleProfile:{employees:[]},settings:{}};
 
 const MANAGER_PASSWORD='Power@2026@';
 const MANAGER_SESSION_KEY='powerAnalyticsManagerAuth';
@@ -66,7 +66,7 @@ function bindManagerAuth(){
 
 const $=id=>document.getElementById(id);
 const fmt={int:v=>new Intl.NumberFormat('pt-BR',{maximumFractionDigits:0}).format(v||0),dec:(v,d=2)=>new Intl.NumberFormat('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}).format(v||0),pct:v=>`${new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v||0)}%`,money:v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0)};
-const titles={dashboard:['Dashboard Executivo','Visão consolidada da operação'],team:['Equipe','Desempenho individual'],hall:['Hall da Fama','Destaques e reconhecimentos'],box:['Caixinha','Ranking mensal da dinâmica'],bonus:['Bonificação','Acompanhamento financeiro'],voice:['Voz do Cliente','Comentários e percepção dos clientes'],history:['Evolução','Comparativos históricos'],manager:['Central do Gestor','Metas, alertas e destaques'],settings:['Gestão da Equipe','Cadastro, status e metas'],audit:['Auditoria','Conferência das regras de negócio']};
+const titles={dashboard:['Dashboard Executivo','Visão consolidada da operação'],team:['Equipe','Desempenho individual'],profiles:['Perfil & Conquistas','Pessoas, tempo de casa e reconhecimentos'],hall:['Hall da Fama','Destaques e reconhecimentos'],box:['Caixinha','Ranking mensal da dinâmica'],bonus:['Bonificação','Acompanhamento financeiro'],voice:['Voz do Cliente','Comentários e percepção dos clientes'],history:['Evolução','Comparativos históricos'],manager:['Central do Gestor','Metas, alertas e destaques'],settings:['Gestão da Equipe','Cadastro, status e metas'],audit:['Auditoria','Conferência das regras de negócio']};
 function slug(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'')}
 function avatar(name,size=''){const emp=employeeByName(name);const display=emp?.displayName||name;const initial=(display||'?').trim().charAt(0).toUpperCase();const file=emp?.photo||`assets/img/team/${slug(name)}.jpg`;return `<div class="avatar ${size}"><img src="${file}" alt="${display}" onerror="this.style.display='none';this.parentElement.dataset.fallback='${initial}'"><span class="avatar-fallback">${initial}</span></div>`}
 function metric(label,value,delta=''){return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div><div class="delta">${delta||'Período selecionado'}</div></div>`}
@@ -84,6 +84,55 @@ function normalizeEmployeeName(name){return String(name||'').trim().toLowerCase(
 function employeeByName(name){
   const n=normalizeEmployeeName(name);
   return (state.teamConfig.employees||[]).find(e=>normalizeEmployeeName(e.name)===n||normalizeEmployeeName(e.displayName)===n);
+}
+function profileConfigByName(name){
+  const n=normalizeEmployeeName(name);
+  return (state.peopleProfile.employees||[]).find(e=>normalizeEmployeeName(e.name)===n)||null;
+}
+function employeeProfile(name){
+  const emp=employeeByName(name)||{};
+  const base=profileConfigByName(name)||{};
+  return {...base,...emp,name:emp.name||base.name||name,achievements:[...(base.achievements||[]),...(emp.achievements||[])]};
+}
+function hasProfileData(name){const p=employeeProfile(name);return !!(p.admissionDate||p.birthDayMonth||p.achievements?.length)}
+function latestRosterNames(){
+  const names=new Set();
+  const period=state.periods[state.periods.length-1];
+  if(!period)return names;
+  const populated=[...(period.months||[])].filter(m=>(m.people||[]).length);
+  const latest=populated[populated.length-1];
+  for(const p of (latest?.people||period.trim?.people||[]))names.add(normalizeEmployeeName(p.name));
+  return names;
+}
+function profileRoster(){
+  const recent=latestRosterNames();
+  return (state.teamConfig.employees||[]).filter(e=>e.status!=='inactive'&&(hasProfileData(e.name)||recent.has(normalizeEmployeeName(e.name)))).sort((a,b)=>(a.displayName||a.name).localeCompare(b.displayName||b.name,'pt-BR'));
+}
+function parseIsoDate(value){
+  const m=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m)return null;
+  return new Date(Number(m[1]),Number(m[2])-1,Number(m[3]),12,0,0);
+}
+function formatDateBR(value){const d=parseIsoDate(value);return d?new Intl.DateTimeFormat('pt-BR').format(d):'Não cadastrada'}
+function parseBirthDayMonth(value){const m=String(value||'').trim().match(/^(\d{1,2})\/(\d{1,2})$/);if(!m)return null;const day=Number(m[1]),month=Number(m[2]);if(day<1||day>31||month<1||month>12)return null;return {day,month}}
+function tenureText(value,now=new Date()){
+  const d=parseIsoDate(value);if(!d||d>now)return 'Admissão não cadastrada';
+  let years=now.getFullYear()-d.getFullYear(),months=now.getMonth()-d.getMonth(),days=now.getDate()-d.getDate();
+  if(days<0){months--;const prev=new Date(now.getFullYear(),now.getMonth(),0).getDate();days+=prev}
+  if(months<0){years--;months+=12}
+  const parts=[];if(years)parts.push(`${years} ${years===1?'ano':'anos'}`);if(months)parts.push(`${months} ${months===1?'mês':'meses'}`);if(!years&&!months)parts.push(`${Math.max(0,days)} ${days===1?'dia':'dias'}`);return parts.join(' e ');
+}
+function yearsAtCompany(value,at=new Date()){const d=parseIsoDate(value);if(!d)return 0;let y=at.getFullYear()-d.getFullYear();if(at.getMonth()<d.getMonth()||(at.getMonth()===d.getMonth()&&at.getDate()<d.getDate()))y--;return Math.max(0,y)}
+function daysUntilMonthDay(value,now=new Date()){
+  const b=parseBirthDayMonth(value);if(!b)return null;
+  let next=new Date(now.getFullYear(),b.month-1,b.day,12);const today=new Date(now.getFullYear(),now.getMonth(),now.getDate(),12);
+  if(next<today)next=new Date(now.getFullYear()+1,b.month-1,b.day,12);
+  return {days:Math.round((next-today)/86400000),date:next};
+}
+function daysUntilAnniversary(value,now=new Date()){
+  const d=parseIsoDate(value);if(!d)return null;
+  let next=new Date(now.getFullYear(),d.getMonth(),d.getDate(),12);const today=new Date(now.getFullYear(),now.getMonth(),now.getDate(),12);
+  if(next<today)next=new Date(now.getFullYear()+1,d.getMonth(),d.getDate(),12);
+  return {days:Math.round((next-today)/86400000),date:next,years:next.getFullYear()-d.getFullYear()};
 }
 function activePeople(people){return (people||[]).filter(p=>employeeByName(p.name)?.status!=='inactive')}
 function loadSavedTeam(){
@@ -221,12 +270,14 @@ async function loadPeriodsFromJsonFallback(){
   return normalizePeriods(await response.json());
 }
 async function loadDefault(){clearStatus();try{
-  const [teamResponse,settingsResponse]=await Promise.all([
+  const [teamResponse,settingsResponse,profileResponse]=await Promise.all([
     fetch(`config/team.json?v=${Date.now()}`,{cache:'no-store'}),
-    fetch(`config/settings.json?v=${Date.now()}`,{cache:'no-store'})
+    fetch(`config/settings.json?v=${Date.now()}`,{cache:'no-store'}),
+    fetch(`config/people-profile.json?v=${Date.now()}`,{cache:'no-store'}).catch(()=>null)
   ]);
   if(teamResponse.ok)state.teamConfig=await teamResponse.json();
   if(settingsResponse.ok)state.settings=await settingsResponse.json();
+  if(profileResponse?.ok)state.peopleProfile=await profileResponse.json();
   loadSavedTeam();
   try{
     state.periods=await loadPeriodsFromManifest();
@@ -257,6 +308,55 @@ function renderDashboardGoals(){const d=currentData(),people=activePeople(d.peop
 function renderDashboardCharts(){const months=state.period.months;chart('monthly',$('monthlyChart'),'line',{labels:months.map(x=>x.month),datasets:[{label:'Atendimentos',data:months.map(x=>x.people.reduce((s,p)=>s+p.att,0)),borderColor:'#8b5cf6',backgroundColor:'#8b5cf633',tension:.35,fill:true},{label:'Avaliações',data:months.map(x=>x.people.reduce((s,p)=>s+p.rated,0)),borderColor:'#22d3ee',tension:.35}]});const d=currentData(),rank=[...(d.people||[])].sort((a,b)=>b.att-a.att);chart('ranking',$('rankingChart'),'bar',{labels:rank.map(x=>x.name),datasets:[{label:'Atendimentos',data:rank.map(x=>x.att),backgroundColor:'#8b5cf6'}]},{indexAxis:'y',plugins:{legend:{display:false}}})}
 function renderTeam(){const d=currentData(),people=activePeople([...(d.people||[])]).sort((a,b)=>b.final-a.final);$('personSelect').innerHTML=people.map(x=>`<option>${x.name}</option>`).join('');$('teamGrid').innerHTML=people.map(x=>`<div class="card person-card" data-person="${x.name}"><div class="person-head">${avatar(x.name)}<div><div class="person-name">${x.name}</div><div class="muted">Média final ${fmt.dec(x.final)}</div></div></div><div class="mini-stats"><div class="mini"><span class="muted">Atendimentos</span><b>${fmt.int(x.att)}</b></div><div class="mini"><span class="muted">Avaliação</span><b>${fmt.pct(x.rate)}</b></div><div class="mini"><span class="muted">Avaliações</span><b>${fmt.int(x.rated)}</b></div><div class="mini"><span class="muted">Caixinha</span><b>${fmt.dec(x.box||0,1)}</b></div></div></div>`).join('');renderPerson(people[0]?.name);document.querySelectorAll('[data-person]').forEach(el=>el.addEventListener('click',()=>{$('personSelect').value=el.dataset.person;renderPerson(el.dataset.person)}))}
 function renderPerson(name){if(!name)return;const labels=state.period.months.map(x=>x.month),vals=state.period.months.map(m=>m.people.find(p=>p.name===name)?.att??null),finals=state.period.months.map(m=>m.people.find(p=>p.name===name)?.final??null);$('profileTitle').textContent=`Evolução de ${name}`;chart('person',$('personChart'),'line',{labels,datasets:[{label:'Atendimentos',data:vals,borderColor:'#8b5cf6',tension:.35,yAxisID:'y'},{label:'Média final',data:finals,borderColor:'#34d399',tension:.35,yAxisID:'y1'}]},{scales:{y1:{position:'right',min:0,max:5,ticks:{color:'#9aabc2'},grid:{drawOnChartArea:false}}}})}
+
+function employeeAchievements(name){
+  const normalized=normalizeEmployeeName(name),events=[],profile=employeeProfile(name),now=new Date();
+  const admitted=parseIsoDate(profile.admissionDate);
+  if(admitted){
+    const maxYears=yearsAtCompany(profile.admissionDate,now);
+    for(let year=1;year<=maxYears;year++){
+      const date=new Date(admitted.getFullYear()+year,admitted.getMonth(),admitted.getDate(),12);
+      events.push({person:name,type:'anniversary',icon:'🎉',title:`${year} ${year===1?'ano':'anos'} de Power System`,detail:`Marco de ${year} ${year===1?'ano':'anos'} de empresa`,date:date.toISOString().slice(0,10),sortDate:date});
+    }
+  }
+  for(const period of state.periods||[]){
+    for(const month of period.months||[]){
+      const people=(month.people||[]).filter(p=>p.box>0);if(!people.length)continue;
+      const max=Math.max(...people.map(p=>num(p.box)));if(max<=0)continue;
+      for(const p of people.filter(p=>num(p.box)===max&&normalizeEmployeeName(p.name)===normalized)){
+        const mi=monthOrder[month.month]||1,date=new Date(period.year,mi,0,12);
+        events.push({person:name,type:'box',icon:'🏆',title:`Campeão da Caixinha · ${month.month}/${period.year}`,detail:`${fmt.dec(p.box,1)} pontos`,date:date.toISOString().slice(0,10),sortDate:date});
+      }
+    }
+  }
+  for(const item of profile.achievements||[]){
+    const date=parseIsoDate(item.date)||new Date(0);
+    events.push({person:name,type:'manual',icon:item.icon||'⭐',title:item.title||'Conquista',detail:item.detail||'',date:item.date||'',sortDate:date});
+  }
+  return events.sort((a,b)=>b.sortDate-a.sortDate);
+}
+function allActiveAchievements(){return profileRoster().flatMap(e=>employeeAchievements(e.name)).sort((a,b)=>b.sortDate-a.sortDate)}
+function profileUpcoming(){
+  const now=new Date(),events=[];
+  for(const e of profileRoster()){
+    const p=employeeProfile(e.name),birth=daysUntilMonthDay(p.birthDayMonth,now),ann=daysUntilAnniversary(p.admissionDate,now);
+    if(birth&&birth.days<=45)events.push({person:e.name,kind:'birthday',icon:'🎂',days:birth.days,date:birth.date,title:birth.days===0?'Aniversário hoje!':`Aniversário em ${birth.days} ${birth.days===1?'dia':'dias'}`});
+    if(ann&&ann.days<=45&&ann.years>0)events.push({person:e.name,kind:'anniversary',icon:'🎉',days:ann.days,date:ann.date,title:ann.days===0?`Completa ${ann.years} ${ann.years===1?'ano':'anos'} de empresa hoje!`:`Completa ${ann.years} ${ann.years===1?'ano':'anos'} de empresa em ${ann.days} ${ann.days===1?'dia':'dias'}`});
+  }
+  return events.sort((a,b)=>a.days-b.days);
+}
+function renderProfiles(){
+  const roster=profileRoster(),filter=$('profilePersonFilter');if(!filter)return;
+  const previous=filter.value||'all';filter.innerHTML='<option value="all">Toda a equipe</option>'+roster.map(e=>`<option value="${e.name}">${e.displayName||e.name}</option>`).join('');
+  filter.value=[...filter.options].some(o=>o.value===previous)?previous:'all';const selected=filter.value;
+  const visible=selected==='all'?roster:roster.filter(e=>e.name===selected),allEvents=allActiveAchievements(),events=selected==='all'?allEvents:allEvents.filter(e=>normalizeEmployeeName(e.person)===normalizeEmployeeName(selected)),upcoming=profileUpcoming();
+  const wins=allEvents.filter(e=>e.type==='box').length,anniversaries=allEvents.filter(e=>e.type==='anniversary'&&e.sortDate.getFullYear()===new Date().getFullYear()).length;
+  $('profileKpis').innerHTML=[metric('Colaboradores no mural',fmt.int(roster.length)),metric('Conquistas registradas',fmt.int(allEvents.length)),metric('Caixinhas conquistadas',fmt.int(wins)),metric('Anos de empresa celebrados',fmt.int(anniversaries)),metric('Celebrações próximas',fmt.int(upcoming.length),'Próximos 45 dias')].join('');
+  $('profileCelebration').innerHTML=upcoming.length?`<div class="celebration-icon">${upcoming[0].icon}</div><div><span class="eyebrow">Próxima celebração</span><h3>${upcoming[0].person}</h3><p>${upcoming[0].title} · ${new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'long'}).format(upcoming[0].date)}</p></div><div class="celebration-list">${upcoming.slice(1,4).map(x=>`<span>${x.icon} <b>${x.person}</b> · ${x.days===0?'hoje':x.days+'d'}</span>`).join('')}</div>`:`<div class="celebration-icon">✨</div><div><span class="eyebrow">Agenda da equipe</span><h3>Nenhuma celebração nos próximos 45 dias</h3><p>O painel continuará acompanhando aniversários e marcos de empresa automaticamente.</p></div>`;
+  $('profileGrid').innerHTML=visible.map(e=>{const p=employeeProfile(e.name),birth=parseBirthDayMonth(p.birthDayMonth),eventsFor=employeeAchievements(e.name),years=yearsAtCompany(p.admissionDate);return `<article class="card profile-card" data-profile-person="${e.name}"><div class="profile-card-head">${avatar(e.name,'large')}<div><h3>${e.displayName||e.name}</h3><span>${e.role||'Equipe de Suporte'}</span></div></div><div class="profile-tenure"><span>Tempo de empresa</span><strong>${tenureText(p.admissionDate)}</strong><small>${p.admissionDate?'Desde '+formatDateBR(p.admissionDate):'Informe a admissão na Gestão da Equipe'}</small></div><div class="profile-facts"><div><span>🎂 Aniversário</span><b>${birth?String(birth.day).padStart(2,'0')+'/'+String(birth.month).padStart(2,'0'):'Não cadastrado'}</b></div><div><span>🎖 Conquistas</span><b>${eventsFor.length}</b></div><div><span>🏢 Anos completos</span><b>${years}</b></div></div><div class="profile-badges">${eventsFor.slice(0,3).map(x=>`<span>${x.icon} ${x.title}</span>`).join('')||'<span>✨ Novas conquistas aparecerão aqui</span>'}</div></article>`}).join('')||'<div class="card empty-state">Nenhum colaborador ativo disponível para este filtro.</div>';
+  $('achievementFeed').innerHTML=events.length?events.slice(0,40).map(ev=>`<div class="achievement-item"><div class="achievement-icon ${ev.type}">${ev.icon}</div><div><div class="achievement-meta"><b>${ev.person}</b><span>${ev.date?new Intl.DateTimeFormat('pt-BR',{month:'short',year:'numeric'}).format(ev.sortDate):''}</span></div><h4>${ev.title}</h4>${ev.detail?`<p>${ev.detail}</p>`:''}</div></div>`).join(''):'<div class="empty">Ainda não há conquistas registradas para este colaborador.</div>';
+  document.querySelectorAll('[data-profile-person]').forEach(card=>card.addEventListener('click',()=>{filter.value=card.dataset.profilePerson;renderProfiles()}));
+}
 function renderHall(){const d=currentData(),people=d.people||[],defs=[['📞','Maior atendimento',[...people].sort((a,b)=>b.att-a.att)[0],x=>fmt.int(x.att)],['⭐','Melhor nota',[...people].sort((a,b)=>b.final-a.final)[0],x=>fmt.dec(x.final)],['📈','Melhor taxa',[...people].sort((a,b)=>b.rate-a.rate)[0],x=>fmt.pct(x.rate)],['🎁','Campeão da caixinha',[...people].sort((a,b)=>(b.box||0)-(a.box||0))[0],x=>fmt.dec(x.box||0,1)+' pts']];$('hallGrid').innerHTML=defs.map(([ico,title,p,fn])=>p?`<div class="card hall"><div class="trophy">${ico}</div><div class="muted">${title}</div>${avatar(p.name)}<div class="winner">${p.name}</div><div class="score">${fn(p)}</div></div>`:'').join('')}
 function renderBox(){const m=state.month==null?state.period.months[state.period.months.length-1]:state.period.months[state.month],rank=[...(m?.people||[])].sort((a,b)=>b.box-a.box),order=[rank[1],rank[0],rank[2]],classes=['two','one','three'],medals=['🥈','🥇','🥉'];$('podium').innerHTML=order.map((p,i)=>p?`<div class="podium-item">${avatar(p.name)}<b>${p.name}</b><div class="muted">${fmt.dec(p.box,1)} pontos</div><div class="step ${classes[i]}"><div style="font-size:28px">${medals[i]}</div><b>${i===1?'1º':i===0?'2º':'3º'}</b></div></div>`:'').join('');$('boxRanking').innerHTML=rank.map((p,i)=>`<div class="rank-row"><div class="rank-pos">${i+1}º</div><div><b>${p.name}</b><div class="muted">${m.month}</div></div><b>${fmt.dec(p.box,1)}</b></div>`).join('')}
 function renderBonus(){const p=state.period,people=[...(p.trim.people||[])].sort((a,b)=>b.bonus-a.bonus);$('bonusKpis').innerHTML=[metric('Total distribuído',fmt.money(p.trim.total.bonus)),metric('Média por colaborador',fmt.money(people.length?p.trim.total.bonus/people.length:0)),metric('Maior bonificação',fmt.money(people[0]?.bonus||0)),metric('Colaboradores',fmt.int(people.filter(x=>x.bonus>0).length)),metric('Período',p.label)].join('');chart('bonus',$('bonusChart'),'bar',{labels:people.map(x=>x.name),datasets:[{label:'Bonificação',data:people.map(x=>x.bonus),backgroundColor:'#34d399'}]},{indexAxis:'y',plugins:{legend:{display:false}}});chart('bonusHistory',$('bonusHistoryChart'),'line',{labels:state.periods.map(x=>x.label),datasets:[{label:'Total distribuído',data:state.periods.map(x=>x.trim.total.bonus),borderColor:'#fbbf24',backgroundColor:'#fbbf2433',fill:true,tension:.3}]})}
@@ -492,12 +592,15 @@ function renderTeamAdmin(){
   $('teamAdminGrid').innerHTML=(state.teamConfig.employees||[]).sort((a,b)=>a.displayName.localeCompare(b.displayName,'pt-BR')).map((e,index)=>{
     const p=performance.get(e.name);
     const g=e.goals||{};
-    return `<article class="team-admin-card" data-admin-index="${index}">
+    return `<article class="team-admin-card" data-admin-name="${e.name}">
       <div class="team-admin-head">${avatar(e.name,'large')}<div><h3>${e.displayName}</h3><span>${e.ramal?'Ramal '+e.ramal:'Sem ramal identificado'}</span></div></div>
       <div class="admin-fields">
         <label>Nome de exibição<input class="control admin-display" value="${e.displayName||e.name}"></label>
         <label>Cargo<input class="control admin-role" value="${e.role||''}"></label>
         <label>Status<select class="control admin-status"><option value="active" ${e.status!=='inactive'?'selected':''}>Ativo</option><option value="inactive" ${e.status==='inactive'?'selected':''}>Desligado</option></select></label>
+        <label>Data de admissão<input type="date" class="control admin-admission" value="${employeeProfile(e.name).admissionDate||''}"></label>
+        <label>Aniversário (DD/MM)<input type="text" inputmode="numeric" maxlength="5" placeholder="DD/MM" class="control admin-birthday" value="${employeeProfile(e.name).birthDayMonth||''}"></label>
+        <label>Data de desligamento<input type="date" class="control admin-termination" value="${employeeProfile(e.name).terminationDate||''}"></label>
         <label>Meta atendimentos<input type="number" class="control admin-goal-att" value="${g.att||500}"></label>
         <label>Meta avaliações<input type="number" class="control admin-goal-rated" value="${g.rated||100}"></label>
         <label>Meta taxa (%)<input type="number" step="0.01" class="control admin-goal-rate" value="${g.rate||25}"></label>
@@ -509,11 +612,15 @@ function renderTeamAdmin(){
   }).join('');
 }
 function collectTeamAdmin(){
-  document.querySelectorAll('[data-admin-index]').forEach(card=>{
-    const e=state.teamConfig.employees[Number(card.dataset.adminIndex)];
+  document.querySelectorAll('[data-admin-name]').forEach(card=>{
+    const e=employeeByName(card.dataset.adminName);
+    if(!e)return;
     e.displayName=card.querySelector('.admin-display').value.trim()||e.name;
     e.role=card.querySelector('.admin-role').value.trim();
     e.status=card.querySelector('.admin-status').value;
+    e.admissionDate=card.querySelector('.admin-admission')?.value||'';
+    e.birthDayMonth=card.querySelector('.admin-birthday')?.value.trim()||'';
+    e.terminationDate=card.querySelector('.admin-termination')?.value||'';
     e.goals={
       att:num(card.querySelector('.admin-goal-att').value),
       rated:num(card.querySelector('.admin-goal-rated').value),
@@ -525,9 +632,9 @@ function collectTeamAdmin(){
 }
 
 function renderAudit(){const rows=[];for(const p of state.periods){for(const m of p.months){for(const a of m.audit||[])rows.push(`<tr><td>${p.fileName}</td><td>${m.sheet} · ${a.name}</td><td class="${a.status==='ok'?'diag-ok':'diag-warn'}">${a.status==='ok'?'OK':'Atenção'}</td><td>${a.detail}</td></tr>`);if(!(m.audit||[]).length)rows.push(`<tr><td>${p.fileName}</td><td>${m.sheet}</td><td class="diag-warn">Atenção</td><td>Nenhum atendente identificado</td></tr>`)}}$('auditBody').innerHTML=rows.join('')}
-function renderAll(){try{renderExecutiveHero();renderKpis();renderEmployeeOfMonth();renderInsights();renderDashboardReviews();renderDashboardGoals();renderDashboardCharts();renderTeam();renderHall();renderBox();renderBonus();renderVoice();renderHistory();renderManager();renderTeamAdmin();renderAudit();clearStatus()}catch(err){console.error(err);showStatus(`<b>Erro ao montar o dashboard.</b> ${err.message}`)}}
+function renderAll(){try{renderExecutiveHero();renderKpis();renderEmployeeOfMonth();renderInsights();renderDashboardReviews();renderDashboardGoals();renderDashboardCharts();renderTeam();renderProfiles();renderHall();renderBox();renderBonus();renderVoice();renderHistory();renderManager();renderTeamAdmin();renderAudit();clearStatus()}catch(err){console.error(err);showStatus(`<b>Erro ao montar o dashboard.</b> ${err.message}`)}}
 function showPage(name){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===`page-${name}`));document.querySelectorAll('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.page===name));$('pageTitle').textContent=titles[name][0];$('pageSubtitle').textContent=titles[name][1];$('sidebar').classList.remove('open')}
-function bind(){ $('periodSelect').addEventListener('change',e=>selectPeriod(Number(e.target.value)));$('monthSelect').addEventListener('change',e=>{state.month=e.target.value==='all'?null:Number(e.target.value);renderAll()});$('personSelect').addEventListener('change',e=>renderPerson(e.target.value));$('voicePerson').addEventListener('change',renderVoice);$('evolutionMode').addEventListener('change',renderHistory);$('evolutionMetric').addEventListener('change',renderHistory);$('evolutionPerson').addEventListener('change',renderHistory);$('saveTeamBtn').addEventListener('click',()=>{collectTeamAdmin();saveTeamConfig();renderAll()});$('nav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(b)requestPage(b.dataset.page)});$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));$('fileInput').addEventListener('change',async e=>{try{
+function bind(){ $('periodSelect').addEventListener('change',e=>selectPeriod(Number(e.target.value)));$('monthSelect').addEventListener('change',e=>{state.month=e.target.value==='all'?null:Number(e.target.value);renderAll()});$('personSelect').addEventListener('change',e=>renderPerson(e.target.value));$('profilePersonFilter').addEventListener('change',renderProfiles);$('voicePerson').addEventListener('change',renderVoice);$('evolutionMode').addEventListener('change',renderHistory);$('evolutionMetric').addEventListener('change',renderHistory);$('evolutionPerson').addEventListener('change',renderHistory);$('saveTeamBtn').addEventListener('click',()=>{collectTeamAdmin();saveTeamConfig();renderAll()});$('nav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(b)requestPage(b.dataset.page)});$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));$('fileInput').addEventListener('change',async e=>{try{
   const results=[];
   for(const f of e.target.files){
     const parsed=parseWorkbook(await f.arrayBuffer(),f.name);
