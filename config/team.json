@@ -14,7 +14,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "2022-08-03",
+      "birthDayMonth": "12/07",
+      "terminationDate": null,
+      "achievements": []
     },
     {
       "id": "1002",
@@ -30,7 +34,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "",
+      "birthDayMonth": "",
+      "terminationDate": null,
+      "achievements": []
     },
     {
       "id": "1004",
@@ -46,7 +54,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "2024-04-01",
+      "birthDayMonth": "13/04",
+      "terminationDate": null,
+      "achievements": []
     },
     {
       "id": "1013",
@@ -62,7 +74,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "2025-04-07",
+      "birthDayMonth": "20/08",
+      "terminationDate": null,
+      "achievements": []
     },
     {
       "id": "1001",
@@ -78,7 +94,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "",
+      "birthDayMonth": "",
+      "terminationDate": null,
+      "achievements": []
     },
     {
       "id": "1003",
@@ -94,7 +114,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "2026-06-22",
+      "birthDayMonth": "05/08",
+      "terminationDate": null,
+      "achievements": []
     },
     {
       "id": "1002",
@@ -110,7 +134,11 @@
         "rate": 30,
         "final": 4.9,
         "box": 500
-      }
+      },
+      "admissionDate": "2026-08-31",
+      "birthDayMonth": "16/05",
+      "terminationDate": null,
+      "achievements": []
     }
   ]
 }
