@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 const monthOrder={Jan:1,Fev:2,Mar:3,Abr:4,Mai:5,Jun:6,Jul:7,Ago:8,Set:9,Out:10,Nov:11,Dez:12};
-const state={periods:[],period:null,month:null,charts:{},teamConfig:{employees:[]},peopleProfile:{employees:[]},settings:{}};
+const state={periods:[],period:null,month:null,charts:{},teamConfig:{employees:[]},settings:{}};
 
 const MANAGER_PASSWORD='Power@2026@';
 const MANAGER_SESSION_KEY='powerAnalyticsManagerAuth';
@@ -92,14 +92,9 @@ function employeeByName(name){
   const n=normalizeEmployeeName(canonicalEmployeeName(name));
   return (state.teamConfig.employees||[]).find(e=>normalizeEmployeeName(e.name)===n||normalizeEmployeeName(e.displayName)===n);
 }
-function profileConfigByName(name){
-  const n=normalizeEmployeeName(canonicalEmployeeName(name));
-  return (state.peopleProfile.employees||[]).find(e=>normalizeEmployeeName(e.name)===n)||null;
-}
 function employeeProfile(name){
   const emp=employeeByName(name)||{};
-  const base=profileConfigByName(name)||{};
-  return {...base,...emp,name:emp.name||base.name||name,achievements:[...(base.achievements||[]),...(emp.achievements||[])]};
+  return {...emp,name:emp.name||name,achievements:[...(emp.achievements||[])]};
 }
 function hasProfileData(name){const p=employeeProfile(name);return !!(p.admissionDate||p.birthDayMonth||p.achievements?.length)}
 function latestRosterNames(){
@@ -160,6 +155,10 @@ function loadSavedTeam(){
           ...previous,
           photo:base.photo,
           ramal:base.ramal||previous.ramal,
+          admissionDate:previous.admissionDate||base.admissionDate||'',
+          birthDayMonth:previous.birthDayMonth||base.birthDayMonth||'',
+          terminationDate:previous.terminationDate||base.terminationDate||null,
+          achievements:[...(base.achievements||[]),...(previous.achievements||[])].filter((item,index,arr)=>arr.findIndex(x=>JSON.stringify(x)===JSON.stringify(item))===index),
           goals:{...(base.goals||{}),...(previous.goals||{})}
         };
       })
@@ -291,14 +290,12 @@ async function loadPeriodsFromJsonFallback(){
   return normalizePeriods(await response.json());
 }
 async function loadDefault(){clearStatus();try{
-  const [teamResponse,settingsResponse,profileResponse]=await Promise.all([
+  const [teamResponse,settingsResponse]=await Promise.all([
     fetch(`config/team.json?v=${Date.now()}`,{cache:'no-store'}),
-    fetch(`config/settings.json?v=${Date.now()}`,{cache:'no-store'}),
-    fetch(`config/people-profile.json?v=${Date.now()}`,{cache:'no-store'}).catch(()=>null)
+    fetch(`config/settings.json?v=${Date.now()}`,{cache:'no-store'})
   ]);
   if(teamResponse.ok)state.teamConfig=await teamResponse.json();
   if(settingsResponse.ok)state.settings=await settingsResponse.json();
-  if(profileResponse?.ok)state.peopleProfile=await profileResponse.json();
   loadSavedTeam();
   try{
     state.periods=await loadPeriodsFromManifest();
