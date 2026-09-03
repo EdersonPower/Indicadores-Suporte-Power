@@ -179,8 +179,8 @@ function autoRegisterEmployees(){
     for(const p of period.trim?.people||[])if(!isIgnoredEmployeeName(p.name))names.add(canonicalEmployeeName(p.name));
   }
   // Perfis cadastrados devem aparecer mesmo antes do primeiro atendimento.
-  for(const p of state.peopleProfile.employees||[])if(!isIgnoredEmployeeName(p.name))names.add(canonicalEmployeeName(p.name));
-  const defaults=state.settings.defaultGoals||{att:500,rated:100,rate:25,final:4.9,box:500};
+  for(const p of state.teamConfig.employees||[])if(!isIgnoredEmployeeName(p.name))names.add(canonicalEmployeeName(p.name));
+  const defaults=state.settings.defaultGoals||{att:500,rated:100,rate:30,final:4.9,box:500};
   for(const name of names){
     if(!name||isIgnoredEmployeeName(name)||employeeByName(name))continue;
     state.teamConfig.employees.push({
