@@ -81,12 +81,19 @@ function rowsOf(wb,sheet){return XLSX.utils.sheet_to_json(wb.Sheets[sheet],{head
 
 
 function normalizeEmployeeName(name){return String(name||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
+const IGNORED_EMPLOYEE_NAMES=new Set(['livre','murilo','sem colaborador','sem atendente','vago','disponivel']);
+function isIgnoredEmployeeName(name){return IGNORED_EMPLOYEE_NAMES.has(normalizeEmployeeName(name))}
+function canonicalEmployeeName(name){
+  const clean=cleanName(name);const n=normalizeEmployeeName(clean);
+  if(n==='thamies')return 'Thamires';
+  return clean;
+}
 function employeeByName(name){
-  const n=normalizeEmployeeName(name);
+  const n=normalizeEmployeeName(canonicalEmployeeName(name));
   return (state.teamConfig.employees||[]).find(e=>normalizeEmployeeName(e.name)===n||normalizeEmployeeName(e.displayName)===n);
 }
 function profileConfigByName(name){
-  const n=normalizeEmployeeName(name);
+  const n=normalizeEmployeeName(canonicalEmployeeName(name));
   return (state.peopleProfile.employees||[]).find(e=>normalizeEmployeeName(e.name)===n)||null;
 }
 function employeeProfile(name){
@@ -101,12 +108,12 @@ function latestRosterNames(){
   if(!period)return names;
   const populated=[...(period.months||[])].filter(m=>(m.people||[]).length);
   const latest=populated[populated.length-1];
-  for(const p of (latest?.people||period.trim?.people||[]))names.add(normalizeEmployeeName(p.name));
+  for(const p of (latest?.people||period.trim?.people||[]))if(!isIgnoredEmployeeName(p.name))names.add(normalizeEmployeeName(canonicalEmployeeName(p.name)));
   return names;
 }
 function profileRoster(){
   const recent=latestRosterNames();
-  return (state.teamConfig.employees||[]).filter(e=>e.status!=='inactive'&&(hasProfileData(e.name)||recent.has(normalizeEmployeeName(e.name)))).sort((a,b)=>(a.displayName||a.name).localeCompare(b.displayName||b.name,'pt-BR'));
+  return (state.teamConfig.employees||[]).filter(e=>!isIgnoredEmployeeName(e.name)&&e.status!=='inactive'&&(hasProfileData(e.name)||recent.has(normalizeEmployeeName(e.name)))).sort((a,b)=>(a.displayName||a.name).localeCompare(b.displayName||b.name,'pt-BR'));
 }
 function parseIsoDate(value){
   const m=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m)return null;
@@ -134,7 +141,7 @@ function daysUntilAnniversary(value,now=new Date()){
   if(next<today)next=new Date(now.getFullYear()+1,d.getMonth(),d.getDate(),12);
   return {days:Math.round((next-today)/86400000),date:next,years:next.getFullYear()-d.getFullYear()};
 }
-function activePeople(people){return (people||[]).filter(p=>employeeByName(p.name)?.status!=='inactive')}
+function activePeople(people){return (people||[]).filter(p=>!isIgnoredEmployeeName(p.name)&&employeeByName(p.name)?.status!=='inactive')}
 function loadSavedTeam(){
   try{
     const saved=localStorage.getItem('powerAnalyticsTeamConfig');
@@ -169,18 +176,21 @@ function saveTeamConfig(){
 function autoRegisterEmployees(){
   const names=new Set();
   for(const period of state.periods){
-    for(const month of period.months||[])for(const p of month.people||[])names.add(p.name);
-    for(const p of period.trim?.people||[])names.add(p.name);
+    for(const month of period.months||[])for(const p of month.people||[])if(!isIgnoredEmployeeName(p.name))names.add(canonicalEmployeeName(p.name));
+    for(const p of period.trim?.people||[])if(!isIgnoredEmployeeName(p.name))names.add(canonicalEmployeeName(p.name));
   }
+  // Perfis cadastrados devem aparecer mesmo antes do primeiro atendimento.
+  for(const p of state.peopleProfile.employees||[])if(!isIgnoredEmployeeName(p.name))names.add(canonicalEmployeeName(p.name));
   const defaults=state.settings.defaultGoals||{att:500,rated:100,rate:25,final:4.9,box:500};
   for(const name of names){
-    if(employeeByName(name))continue;
+    if(!name||isIgnoredEmployeeName(name)||employeeByName(name))continue;
     state.teamConfig.employees.push({
       id:slug(name),ramal:'',name,displayName:name,role:'Analista de Suporte',status:'active',
       photo:`assets/img/team/${slug(name)}.jpg`,goals:{...defaults}
     });
   }
 }
+
 function goalProgress(value,target,metric){
   if(!target)return 0;
   if(metric==='final')return Math.min(100,value/target*100);
@@ -196,16 +206,16 @@ function parseReviews(wb){
     const rows=rowsOf(wb,sheet);
     for(let r=1;r<rows.length;r++){
       const row=rows[r]||[];
-      const person=cleanName(row[0]);
+      const person=canonicalEmployeeName(row[0]);
       const comment=String(row[1]??'').trim();
-      if(person&&comment)reviews.push({month:token,monthIndex:monthOrder[token]||99,sheet,person,comment});
+      if(person&&!isIgnoredEmployeeName(person)&&comment)reviews.push({month:token,monthIndex:monthOrder[token]||99,sheet,person,comment});
     }
   }
   return reviews.sort((a,b)=>a.monthIndex-b.monthIndex);
 }
 
-function parseTop(rows){const out=[];for(let r=1;r<9;r++){const row=rows[r]||[];const name=cleanName(row[0]);if(!name||/^TOTAL$/i.test(name))continue;if(row[1]==null&&row[2]==null)continue;out.push({name,att:num(row[1]),rated:num(row[2]),rate:num(row[3])*100,avg:num(row[4]),discount:num(row[5]),final:num(row[6]),box:num(row[8]),bonus:num(row[9])})}return out}
-function parseBase(rows){const out=[];for(let r=14;r<30;r++){const row=rows[r]||[];const name=cleanName(row[0]);if(!name||/^ATENDENTE$/i.test(name)||/^TOTAL$/i.test(name))continue;if(row[1]==null&&row[2]==null&&row[3]==null)continue;out.push({name,qsa:num(row[1]),qea:num(row[2]),ts:num(row[3]),te:num(row[4]),whats:num(row[5]),whatsRated:num(row[6])})}return out}
+function parseTop(rows){const out=[];for(let r=1;r<9;r++){const row=rows[r]||[];const name=canonicalEmployeeName(row[0]);if(!name||isIgnoredEmployeeName(name)||/^TOTAL$/i.test(name))continue;if(row[1]==null&&row[2]==null)continue;out.push({name,att:num(row[1]),rated:num(row[2]),rate:num(row[3])*100,avg:num(row[4]),discount:num(row[5]),final:num(row[6]),box:num(row[8]),bonus:num(row[9])})}return out}
+function parseBase(rows){const out=[];for(let r=14;r<30;r++){const row=rows[r]||[];const name=canonicalEmployeeName(row[0]);if(!name||isIgnoredEmployeeName(name)||/^ATENDENTE$/i.test(name)||/^TOTAL$/i.test(name))continue;if(row[1]==null&&row[2]==null&&row[3]==null)continue;out.push({name,qsa:num(row[1]),qea:num(row[2]),ts:num(row[3]),te:num(row[4]),whats:num(row[5]),whatsRated:num(row[6])})}return out}
 function mergeAudit(top,base){const map=new Map(base.map(x=>[x.name,x]));return top.map(x=>{const b=map.get(x.name);if(!b)return{name:x.name,status:'warn',detail:'Sem linha correspondente na tabela-base A14'};const calcAtt=b.ts+b.te+b.whats,calcRated=b.qsa+b.qea,issues=[];if(Math.abs(calcAtt-x.att)>.01)issues.push(`Atendimentos: tabela ${x.att}, base ${calcAtt}`);if(Math.abs(calcRated-x.rated)>.01)issues.push(`Avaliações: tabela ${x.rated}, base ${calcRated}`);if(Math.abs((x.avg-x.discount)-x.final)>.01)issues.push('Média final divergente de média − desconto');return{name:x.name,status:issues.length?'warn':'ok',detail:issues.length?issues.join(' · '):'Cálculos conferidos'}})}
 
 function periodKey(period){
@@ -237,9 +247,20 @@ function upsertPeriod(period){
   return {action:'added',index:state.periods.findIndex(item=>periodKey(item)===key)};
 }
 
-function parseWorkbook(buffer,fileName,labelHint=''){if(!window.XLSX)throw new Error('Biblioteca de leitura do Excel indisponível.');const wb=XLSX.read(buffer,{type:'array',cellFormula:true,cellDates:true});const npsSheets=wb.SheetNames.filter(n=>/^nps\s/i.test(n));const monthly=npsSheets.filter(n=>!/(trim|trimestral)/i.test(n)).map(sheet=>{const rows=rowsOf(wb,sheet),token=monthToken(sheet)||sheet.replace(/^nps\s*/i,'').trim(),top=parseTop(rows),base=parseBase(rows);return{sheet,month:token,monthIndex:monthOrder[token]||99,people:top,base,audit:mergeAudit(top,base)}}).sort((a,b)=>a.monthIndex-b.monthIndex);const reviews=parseReviews(wb);const trimSheet=npsSheets.find(n=>/(trim|trimestral)/i.test(n)),trimRows=trimSheet?rowsOf(wb,trimSheet):[],trimPeople=trimSheet?parseTop(trimRows):[],totalRow=trimRows.find(r=>String(r?.[0]??'').trim().toUpperCase()==='TOTAL')||[],inferred=fileName.match(/([1-4])\s*trim.*?(20\d{2})/i),quarter=inferred?Number(inferred[1]):Math.ceil(((monthly[0]?.monthIndex)||1)/3),year=inferred?Number(inferred[2]):Number((labelHint.match(/20\d{2}/)||['2026'])[0]);const total={att:num(totalRow[1]),rated:num(totalRow[2]),rate:num(totalRow[3])*100,avg:num(totalRow[4]),discount:num(totalRow[5]),final:num(totalRow[6]),bonus:num(totalRow[9])};const isPartial=!total.att&&monthly.some(m=>(m.people||[]).length);const label=labelHint||`${quarter}º Trimestre ${year}${isPartial?' (parcial)':''}`;return{id:`${year}-Q${quarter}`,fileName,label,year,quarter,status:isPartial?'partial':'closed',months:monthly,reviews,trim:{sheet:trimSheet,people:trimPeople,total},sheets:wb.SheetNames}}
-function aggregateMonths(months){const map=new Map();for(const m of months)for(const p of m.people){const x=map.get(p.name)||{name:p.name,att:0,rated:0,avgWeighted:0,finalWeighted:0,discountWeighted:0,box:0};x.att+=p.att;x.rated+=p.rated;x.avgWeighted+=p.avg*p.rated;x.finalWeighted+=p.final*p.rated;x.discountWeighted+=p.discount*p.rated;x.box+=p.box;map.set(p.name,x)}const people=[...map.values()].map(x=>({...x,rate:x.att?x.rated/x.att*100:0,avg:x.rated?x.avgWeighted/x.rated:0,final:x.rated?x.finalWeighted/x.rated:0,discount:x.rated?x.discountWeighted/x.rated:0}));const att=people.reduce((s,x)=>s+x.att,0),rated=people.reduce((s,x)=>s+x.rated,0);return{att,rated,rate:att?rated/att*100:0,final:rated?people.reduce((s,x)=>s+x.final*x.rated,0)/rated:0,avg:rated?people.reduce((s,x)=>s+x.avg*x.rated,0)/rated:0,discount:rated?people.reduce((s,x)=>s+x.discount*x.rated,0)/rated:0,people}}
-function aggregatePeriod(p){return p.trim?.total?.att?{...p.trim.total,people:p.trim.people}:aggregateMonths(p.months)}
+function summarizePeople(people){
+  const rows=(people||[]).filter(p=>!isIgnoredEmployeeName(p.name));
+  const att=rows.reduce((sum,p)=>sum+num(p.att),0),rated=rows.reduce((sum,p)=>sum+num(p.rated),0);
+  return {
+    att,rated,rate:att?rated/att*100:0,
+    avg:rated?rows.reduce((sum,p)=>sum+num(p.avg)*num(p.rated),0)/rated:0,
+    discount:rated?rows.reduce((sum,p)=>sum+num(p.discount)*num(p.rated),0)/rated:0,
+    final:rated?rows.reduce((sum,p)=>sum+num(p.final)*num(p.rated),0)/rated:0,
+    bonus:rows.reduce((sum,p)=>sum+num(p.bonus),0)
+  };
+}
+function parseWorkbook(buffer,fileName,labelHint=''){if(!window.XLSX)throw new Error('Biblioteca de leitura do Excel indisponível.');const wb=XLSX.read(buffer,{type:'array',cellFormula:true,cellDates:true});const npsSheets=wb.SheetNames.filter(n=>/^nps\s/i.test(n));const monthly=npsSheets.filter(n=>!/(trim|trimestral)/i.test(n)).map(sheet=>{const rows=rowsOf(wb,sheet),token=monthToken(sheet)||sheet.replace(/^nps\s*/i,'').trim(),top=parseTop(rows),base=parseBase(rows);return{sheet,month:token,monthIndex:monthOrder[token]||99,people:top,base,audit:mergeAudit(top,base)}}).sort((a,b)=>a.monthIndex-b.monthIndex);const reviews=parseReviews(wb);const trimSheet=npsSheets.find(n=>/(trim|trimestral)/i.test(n)),trimRows=trimSheet?rowsOf(wb,trimSheet):[],trimPeople=trimSheet?parseTop(trimRows):[],totalRow=trimRows.find(r=>String(r?.[0]??'').trim().toUpperCase()==='TOTAL')||[],inferred=fileName.match(/([1-4])\s*trim.*?(20\d{2})/i),quarter=inferred?Number(inferred[1]):Math.ceil(((monthly[0]?.monthIndex)||1)/3),year=inferred?Number(inferred[2]):Number((labelHint.match(/20\d{2}/)||['2026'])[0]);const rawTotal={att:num(totalRow[1]),rated:num(totalRow[2]),rate:num(totalRow[3])*100,avg:num(totalRow[4]),discount:num(totalRow[5]),final:num(totalRow[6]),bonus:num(totalRow[9])},total=trimPeople.length?summarizePeople(trimPeople):rawTotal;const isPartial=!total.att&&monthly.some(m=>(m.people||[]).length);const label=labelHint||`${quarter}º Trimestre ${year}${isPartial?' (parcial)':''}`;return{id:`${year}-Q${quarter}`,fileName,label,year,quarter,status:isPartial?'partial':'closed',months:monthly,reviews,trim:{sheet:trimSheet,people:trimPeople,total},sheets:wb.SheetNames}}
+function aggregateMonths(months){const map=new Map();for(const m of months)for(const p of m.people){if(isIgnoredEmployeeName(p.name))continue;const personName=canonicalEmployeeName(p.name);const x=map.get(personName)||{name:personName,att:0,rated:0,avgWeighted:0,finalWeighted:0,discountWeighted:0,box:0};x.att+=p.att;x.rated+=p.rated;x.avgWeighted+=p.avg*p.rated;x.finalWeighted+=p.final*p.rated;x.discountWeighted+=p.discount*p.rated;x.box+=p.box;map.set(personName,x)}const people=[...map.values()].map(x=>({...x,rate:x.att?x.rated/x.att*100:0,avg:x.rated?x.avgWeighted/x.rated:0,final:x.rated?x.finalWeighted/x.rated:0,discount:x.rated?x.discountWeighted/x.rated:0}));const att=people.reduce((s,x)=>s+x.att,0),rated=people.reduce((s,x)=>s+x.rated,0);return{att,rated,rate:att?rated/att*100:0,final:rated?people.reduce((s,x)=>s+x.final*x.rated,0)/rated:0,avg:rated?people.reduce((s,x)=>s+x.avg*x.rated,0)/rated:0,discount:rated?people.reduce((s,x)=>s+x.discount*x.rated,0)/rated:0,people}}
+function aggregatePeriod(p){const people=(p.trim?.people||[]).filter(x=>!isIgnoredEmployeeName(x.name));return people.length?{...summarizePeople(people),people}:aggregateMonths(p.months)}
 function destroyChart(key){if(state.charts[key]&&typeof state.charts[key].destroy==='function')state.charts[key].destroy();state.charts[key]=null}
 function chart(key,el,type,data,options={}){destroyChart(key);if(!el||!window.Chart){if(!window.Chart)showStatus('<b>Os dados foram carregados, mas a biblioteca de gráficos não respondeu.</b> Atualize a página ou verifique o bloqueio de scripts externos.','warn');return}state.charts[key]=new Chart(el,{type,data,options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#b8c5d9'}},...(options.plugins||{})},scales:type==='doughnut'?undefined:{x:{ticks:{color:'#9aabc2'},grid:{color:'#20314e55'}},y:{ticks:{color:'#9aabc2'},grid:{color:'#20314e55'},beginAtZero:true},...(options.scales||{})},...options}})}
 async function loadPeriodsFromManifest(){
@@ -310,7 +331,8 @@ function renderTeam(){const d=currentData(),people=activePeople([...(d.people||[
 function renderPerson(name){if(!name)return;const labels=state.period.months.map(x=>x.month),vals=state.period.months.map(m=>m.people.find(p=>p.name===name)?.att??null),finals=state.period.months.map(m=>m.people.find(p=>p.name===name)?.final??null);$('profileTitle').textContent=`Evolução de ${name}`;chart('person',$('personChart'),'line',{labels,datasets:[{label:'Atendimentos',data:vals,borderColor:'#8b5cf6',tension:.35,yAxisID:'y'},{label:'Média final',data:finals,borderColor:'#34d399',tension:.35,yAxisID:'y1'}]},{scales:{y1:{position:'right',min:0,max:5,ticks:{color:'#9aabc2'},grid:{drawOnChartArea:false}}}})}
 
 function employeeAchievements(name){
-  const normalized=normalizeEmployeeName(name),events=[],profile=employeeProfile(name),now=new Date();
+  if(isIgnoredEmployeeName(name))return [];
+  const normalized=normalizeEmployeeName(canonicalEmployeeName(name)),events=[],profile=employeeProfile(name),now=new Date();
   const admitted=parseIsoDate(profile.admissionDate);
   if(admitted){
     const maxYears=yearsAtCompany(profile.admissionDate,now);
@@ -357,9 +379,9 @@ function renderProfiles(){
   $('achievementFeed').innerHTML=events.length?events.slice(0,40).map(ev=>`<div class="achievement-item"><div class="achievement-icon ${ev.type}">${ev.icon}</div><div><div class="achievement-meta"><b>${ev.person}</b><span>${ev.date?new Intl.DateTimeFormat('pt-BR',{month:'short',year:'numeric'}).format(ev.sortDate):''}</span></div><h4>${ev.title}</h4>${ev.detail?`<p>${ev.detail}</p>`:''}</div></div>`).join(''):'<div class="empty">Ainda não há conquistas registradas para este colaborador.</div>';
   document.querySelectorAll('[data-profile-person]').forEach(card=>card.addEventListener('click',()=>{filter.value=card.dataset.profilePerson;renderProfiles()}));
 }
-function renderHall(){const d=currentData(),people=d.people||[],defs=[['📞','Maior atendimento',[...people].sort((a,b)=>b.att-a.att)[0],x=>fmt.int(x.att)],['⭐','Melhor nota',[...people].sort((a,b)=>b.final-a.final)[0],x=>fmt.dec(x.final)],['📈','Melhor taxa',[...people].sort((a,b)=>b.rate-a.rate)[0],x=>fmt.pct(x.rate)],['🎁','Campeão da caixinha',[...people].sort((a,b)=>(b.box||0)-(a.box||0))[0],x=>fmt.dec(x.box||0,1)+' pts']];$('hallGrid').innerHTML=defs.map(([ico,title,p,fn])=>p?`<div class="card hall"><div class="trophy">${ico}</div><div class="muted">${title}</div>${avatar(p.name)}<div class="winner">${p.name}</div><div class="score">${fn(p)}</div></div>`:'').join('')}
-function renderBox(){const m=state.month==null?state.period.months[state.period.months.length-1]:state.period.months[state.month],rank=[...(m?.people||[])].sort((a,b)=>b.box-a.box),order=[rank[1],rank[0],rank[2]],classes=['two','one','three'],medals=['🥈','🥇','🥉'];$('podium').innerHTML=order.map((p,i)=>p?`<div class="podium-item">${avatar(p.name)}<b>${p.name}</b><div class="muted">${fmt.dec(p.box,1)} pontos</div><div class="step ${classes[i]}"><div style="font-size:28px">${medals[i]}</div><b>${i===1?'1º':i===0?'2º':'3º'}</b></div></div>`:'').join('');$('boxRanking').innerHTML=rank.map((p,i)=>`<div class="rank-row"><div class="rank-pos">${i+1}º</div><div><b>${p.name}</b><div class="muted">${m.month}</div></div><b>${fmt.dec(p.box,1)}</b></div>`).join('')}
-function renderBonus(){const p=state.period,people=[...(p.trim.people||[])].sort((a,b)=>b.bonus-a.bonus);$('bonusKpis').innerHTML=[metric('Total distribuído',fmt.money(p.trim.total.bonus)),metric('Média por colaborador',fmt.money(people.length?p.trim.total.bonus/people.length:0)),metric('Maior bonificação',fmt.money(people[0]?.bonus||0)),metric('Colaboradores',fmt.int(people.filter(x=>x.bonus>0).length)),metric('Período',p.label)].join('');chart('bonus',$('bonusChart'),'bar',{labels:people.map(x=>x.name),datasets:[{label:'Bonificação',data:people.map(x=>x.bonus),backgroundColor:'#34d399'}]},{indexAxis:'y',plugins:{legend:{display:false}}});chart('bonusHistory',$('bonusHistoryChart'),'line',{labels:state.periods.map(x=>x.label),datasets:[{label:'Total distribuído',data:state.periods.map(x=>x.trim.total.bonus),borderColor:'#fbbf24',backgroundColor:'#fbbf2433',fill:true,tension:.3}]})}
+function renderHall(){const d=currentData(),people=activePeople(d.people||[]),defs=[['📞','Maior atendimento',[...people].sort((a,b)=>b.att-a.att)[0],x=>fmt.int(x.att)],['⭐','Melhor nota',[...people].sort((a,b)=>b.final-a.final)[0],x=>fmt.dec(x.final)],['📈','Melhor taxa',[...people].sort((a,b)=>b.rate-a.rate)[0],x=>fmt.pct(x.rate)],['🎁','Campeão da caixinha',[...people].sort((a,b)=>(b.box||0)-(a.box||0))[0],x=>fmt.dec(x.box||0,1)+' pts']];$('hallGrid').innerHTML=defs.map(([ico,title,p,fn])=>p?`<div class="card hall"><div class="trophy">${ico}</div><div class="muted">${title}</div>${avatar(p.name)}<div class="winner">${p.name}</div><div class="score">${fn(p)}</div></div>`:'').join('')}
+function renderBox(){const m=state.month==null?state.period.months[state.period.months.length-1]:state.period.months[state.month],rank=activePeople([...(m?.people||[])]).sort((a,b)=>b.box-a.box),order=[rank[1],rank[0],rank[2]],classes=['two','one','three'],medals=['🥈','🥇','🥉'];$('podium').innerHTML=order.map((p,i)=>p?`<div class="podium-item">${avatar(p.name)}<b>${p.name}</b><div class="muted">${fmt.dec(p.box,1)} pontos</div><div class="step ${classes[i]}"><div style="font-size:28px">${medals[i]}</div><b>${i===1?'1º':i===0?'2º':'3º'}</b></div></div>`:'').join('');$('boxRanking').innerHTML=rank.map((p,i)=>`<div class="rank-row"><div class="rank-pos">${i+1}º</div><div><b>${p.name}</b><div class="muted">${m.month}</div></div><b>${fmt.dec(p.box,1)}</b></div>`).join('')}
+function renderBonus(){const p=state.period,people=activePeople([...(p.trim.people||[])]).sort((a,b)=>b.bonus-a.bonus),bonusTotal=people.reduce((sum,x)=>sum+num(x.bonus),0);$('bonusKpis').innerHTML=[metric('Total distribuído',fmt.money(bonusTotal)),metric('Média por colaborador',fmt.money(people.length?bonusTotal/people.length:0)),metric('Maior bonificação',fmt.money(people[0]?.bonus||0)),metric('Colaboradores',fmt.int(people.filter(x=>x.bonus>0).length)),metric('Período',p.label)].join('');chart('bonus',$('bonusChart'),'bar',{labels:people.map(x=>x.name),datasets:[{label:'Bonificação',data:people.map(x=>x.bonus),backgroundColor:'#34d399'}]},{indexAxis:'y',plugins:{legend:{display:false}}});chart('bonusHistory',$('bonusHistoryChart'),'line',{labels:state.periods.map(x=>x.label),datasets:[{label:'Total distribuído',data:state.periods.map(x=>(x.trim?.people||[]).filter(p=>!isIgnoredEmployeeName(p.name)).reduce((sum,p)=>sum+num(p.bonus),0)),borderColor:'#fbbf24',backgroundColor:'#fbbf2433',fill:true,tension:.3}]})}
 
 
 function selectedReviews(){
