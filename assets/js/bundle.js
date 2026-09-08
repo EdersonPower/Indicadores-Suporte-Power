@@ -136,7 +136,44 @@ function daysUntilAnniversary(value,now=new Date()){
   if(next<today)next=new Date(now.getFullYear()+1,d.getMonth(),d.getDate(),12);
   return {days:Math.round((next-today)/86400000),date:next,years:next.getFullYear()-d.getFullYear()};
 }
-function activePeople(people){return (people||[]).filter(p=>!isIgnoredEmployeeName(p.name)&&employeeByName(p.name)?.status!=='inactive')}
+function monthRange(year,monthIndex){
+  const y=Number(year),m=Number(monthIndex);
+  if(!y||!m||m<1||m>12)return null;
+  return {start:new Date(y,m-1,1,0,0,0,0),end:new Date(y,m,0,23,59,59,999)};
+}
+function periodRange(period){
+  if(!period)return null;
+  const year=Number(period.year);
+  const indexes=(period.months||[]).map(m=>Number(m.monthIndex)).filter(m=>m>=1&&m<=12);
+  if(indexes.length){
+    const first=Math.min(...indexes),last=Math.max(...indexes);
+    return {start:new Date(year,first-1,1,0,0,0,0),end:new Date(year,last,0,23,59,59,999)};
+  }
+  const q=Number(period.quarter)||1,first=(q-1)*3+1,last=first+2;
+  return {start:new Date(year,first-1,1,0,0,0,0),end:new Date(year,last,0,23,59,59,999)};
+}
+function selectedEmploymentRange(){
+  if(!state.period)return null;
+  if(state.month!=null){
+    const m=state.period.months?.[state.month];
+    return m?monthRange(state.period.year,m.monthIndex):periodRange(state.period);
+  }
+  return periodRange(state.period);
+}
+function employedDuring(name,range){
+  if(!range)return true;
+  const emp=employeeByName(name);
+  if(!emp)return true;
+  const admission=parseIsoDate(emp.admissionDate);
+  const termination=parseIsoDate(emp.terminationDate);
+  if(admission&&admission>range.end)return false;
+  if(termination&&termination<range.start)return false;
+  if(emp.status==='inactive'&&!termination)return false;
+  return true;
+}
+function activePeople(people,range=selectedEmploymentRange()){
+  return (people||[]).filter(p=>!isIgnoredEmployeeName(p.name)&&employedDuring(p.name,range));
+}
 function loadSavedTeam(){
   try{
     const saved=localStorage.getItem('powerAnalyticsTeamConfig');
@@ -258,8 +295,26 @@ function summarizePeople(people){
   };
 }
 function parseWorkbook(buffer,fileName,labelHint=''){if(!window.XLSX)throw new Error('Biblioteca de leitura do Excel indisponível.');const wb=XLSX.read(buffer,{type:'array',cellFormula:true,cellDates:true});const npsSheets=wb.SheetNames.filter(n=>/^nps\s/i.test(n));const monthly=npsSheets.filter(n=>!/(trim|trimestral)/i.test(n)).map(sheet=>{const rows=rowsOf(wb,sheet),token=monthToken(sheet)||sheet.replace(/^nps\s*/i,'').trim(),top=parseTop(rows),base=parseBase(rows);return{sheet,month:token,monthIndex:monthOrder[token]||99,people:top,base,audit:mergeAudit(top,base)}}).sort((a,b)=>a.monthIndex-b.monthIndex);const reviews=parseReviews(wb);const trimSheet=npsSheets.find(n=>/(trim|trimestral)/i.test(n)),trimRows=trimSheet?rowsOf(wb,trimSheet):[],trimPeople=trimSheet?parseTop(trimRows):[],totalRow=trimRows.find(r=>String(r?.[0]??'').trim().toUpperCase()==='TOTAL')||[],inferred=fileName.match(/([1-4])\s*trim.*?(20\d{2})/i),quarter=inferred?Number(inferred[1]):Math.ceil(((monthly[0]?.monthIndex)||1)/3),year=inferred?Number(inferred[2]):Number((labelHint.match(/20\d{2}/)||['2026'])[0]);const rawTotal={att:num(totalRow[1]),rated:num(totalRow[2]),rate:num(totalRow[3])*100,avg:num(totalRow[4]),discount:num(totalRow[5]),final:num(totalRow[6]),bonus:num(totalRow[9])},total=trimPeople.length?summarizePeople(trimPeople):rawTotal;const isPartial=!total.att&&monthly.some(m=>(m.people||[]).length);const label=labelHint||`${quarter}º Trimestre ${year}${isPartial?' (parcial)':''}`;return{id:`${year}-Q${quarter}`,fileName,label,year,quarter,status:isPartial?'partial':'closed',months:monthly,reviews,trim:{sheet:trimSheet,people:trimPeople,total},sheets:wb.SheetNames}}
-function aggregateMonths(months){const map=new Map();for(const m of months)for(const p of m.people){if(isIgnoredEmployeeName(p.name))continue;const personName=canonicalEmployeeName(p.name);const x=map.get(personName)||{name:personName,att:0,rated:0,avgWeighted:0,finalWeighted:0,discountWeighted:0,box:0};x.att+=p.att;x.rated+=p.rated;x.avgWeighted+=p.avg*p.rated;x.finalWeighted+=p.final*p.rated;x.discountWeighted+=p.discount*p.rated;x.box+=p.box;map.set(personName,x)}const people=[...map.values()].map(x=>({...x,rate:x.att?x.rated/x.att*100:0,avg:x.rated?x.avgWeighted/x.rated:0,final:x.rated?x.finalWeighted/x.rated:0,discount:x.rated?x.discountWeighted/x.rated:0}));const att=people.reduce((s,x)=>s+x.att,0),rated=people.reduce((s,x)=>s+x.rated,0);return{att,rated,rate:att?rated/att*100:0,final:rated?people.reduce((s,x)=>s+x.final*x.rated,0)/rated:0,avg:rated?people.reduce((s,x)=>s+x.avg*x.rated,0)/rated:0,discount:rated?people.reduce((s,x)=>s+x.discount*x.rated,0)/rated:0,people}}
-function aggregatePeriod(p){const people=(p.trim?.people||[]).filter(x=>!isIgnoredEmployeeName(x.name));return people.length?{...summarizePeople(people),people}:aggregateMonths(p.months)}
+function aggregateMonths(months,periodHint=state.period){
+  const map=new Map();
+  for(const m of (months||[])){
+    const range=monthRange(periodHint?.year,m.monthIndex);
+    for(const p of (m.people||[])){
+      if(isIgnoredEmployeeName(p.name)||!employedDuring(p.name,range))continue;
+      const personName=canonicalEmployeeName(p.name);
+      const x=map.get(personName)||{name:personName,att:0,rated:0,avgWeighted:0,finalWeighted:0,discountWeighted:0,box:0};
+      x.att+=p.att;x.rated+=p.rated;x.avgWeighted+=p.avg*p.rated;x.finalWeighted+=p.final*p.rated;x.discountWeighted+=p.discount*p.rated;x.box+=p.box;map.set(personName,x);
+    }
+  }
+  const people=[...map.values()].map(x=>({...x,rate:x.att?x.rated/x.att*100:0,avg:x.rated?x.avgWeighted/x.rated:0,final:x.rated?x.finalWeighted/x.rated:0,discount:x.rated?x.discountWeighted/x.rated:0}));
+  const att=people.reduce((s,x)=>s+x.att,0),rated=people.reduce((s,x)=>s+x.rated,0);
+  return{att,rated,rate:att?rated/att*100:0,final:rated?people.reduce((s,x)=>s+x.final*x.rated,0)/rated:0,avg:rated?people.reduce((s,x)=>s+x.avg*x.rated,0)/rated:0,discount:rated?people.reduce((s,x)=>s+x.discount*x.rated,0)/rated:0,people};
+}
+function aggregatePeriod(p){
+  const range=periodRange(p);
+  const people=(p.trim?.people||[]).filter(x=>!isIgnoredEmployeeName(x.name)&&employedDuring(x.name,range));
+  return people.length?{...summarizePeople(people),people}:aggregateMonths(p.months,p);
+}
 function destroyChart(key){if(state.charts[key]&&typeof state.charts[key].destroy==='function')state.charts[key].destroy();state.charts[key]=null}
 function chart(key,el,type,data,options={}){destroyChart(key);if(!el||!window.Chart){if(!window.Chart)showStatus('<b>Os dados foram carregados, mas a biblioteca de gráficos não respondeu.</b> Atualize a página ou verifique o bloqueio de scripts externos.','warn');return}state.charts[key]=new Chart(el,{type,data,options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#b8c5d9'}},...(options.plugins||{})},scales:type==='doughnut'?undefined:{x:{ticks:{color:'#9aabc2'},grid:{color:'#20314e55'}},y:{ticks:{color:'#9aabc2'},grid:{color:'#20314e55'},beginAtZero:true},...(options.scales||{})},...options}})}
 async function loadPeriodsFromManifest(){
@@ -322,7 +377,7 @@ function executivePeriodLabel(){return state.month!=null?`${state.period.months[
 function renderEmployeeOfMonth(){const w=employeeOfMonthData();if(!w){$('employeeOfMonth').innerHTML='<div class="empty">Sem dados.</div>';return}const display=employeeByName(w.name)?.displayName||w.name;$('employeeOfMonth').innerHTML=`<div class="employee-of-month-glow"></div><div class="employee-period-title"><span class="employee-period-icon">🏆</span><div><span class="eyebrow">Colaborador do período</span><small>${executivePeriodLabel()}</small></div></div><div class="employee-period-content"><div class="employee-period-profile">${avatar(w.name,'executive-avatar')}<div class="employee-period-copy"><h2>${display}</h2><p>Desempenho combinado de qualidade, volume, avaliações e Caixinha.</p></div></div><div class="employee-feature-stats"><div class="employee-stat purple"><span>Média</span><b>${fmt.dec(w.final)}</b></div><div class="employee-stat blue"><span>Atendimentos</span><b>${fmt.int(w.att)}</b></div><div class="employee-stat green"><span>Taxa de avaliação</span><b>${fmt.pct(w.rate)}</b></div><div class="employee-stat amber"><span>Caixinha</span><b>${fmt.dec(w.box||0,1)}</b></div></div></div>`}
 function renderInsights(){const d=currentData(),p=previousData(),people=activePeople(d.people||[]),reviews=dashboardReviews(),items=[],ta=[...people].sort((a,b)=>b.att-a.att)[0],tf=[...people].sort((a,b)=>b.final-a.final)[0],tr=[...people].sort((a,b)=>b.rate-a.rate)[0],vc=reviews.reduce((m,x)=>(m[x.person]=(m[x.person]||0)+1,m),{}),tv=Object.entries(vc).sort((a,b)=>b[1]-a[1])[0];if(p){const c=p.att?(d.att-p.att)/p.att*100:0;items.push([c>=0?'↗':'↘','Volume de atendimentos',`${c>=0?'Crescimento':'Redução'} de ${Math.abs(c).toFixed(1)}% em relação ao anterior.`,c>=0?'positive':'attention'])}if(ta)items.push(['📞','Liderança de volume',`${ta.name} realizou ${fmt.int(ta.att)} atendimentos.`,'neutral']);if(tf)items.push(['⭐','Qualidade em destaque',`${tf.name} obteve média ${fmt.dec(tf.final)}.`,'positive']);if(tr)items.push(['◎','Taxa de avaliação',`${tr.name} liderou com ${fmt.pct(tr.rate)}.`,'neutral']);if(tv)items.push(['💬','Voz do cliente',`${tv[0]} foi citado em ${tv[1]} comentários.`,'positive']);$('insights').innerHTML=items.map(x=>`<div class="executive-insight ${x[3]}"><span class="insight-icon">${x[0]}</span><div><b>${x[1]}</b><p>${x[2]}</p></div></div>`).join('')}
 function renderDashboardReviews(){const r=dashboardReviews().slice(-3).reverse();$('dashboardReviews').innerHTML=r.length?r.map(x=>`<div class="dashboard-review">${avatar(x.person)}<div><b>${x.person}</b><p>“${String(x.comment).replace(/</g,'&lt;').replace(/>/g,'&gt;')}”</p><span>${x.month}</span></div></div>`).join(''):'<div class="empty">Nenhum comentário neste período.</div>'}
-function renderDashboardGoals(){const d=currentData(),people=activePeople(d.people||[]),def=state.settings.defaultGoals||{att:500,rated:100,rate:25,final:4.9},t={att:people.reduce((s,p)=>s+(employeeGoals(p.name).att||def.att),0),rated:people.reduce((s,p)=>s+(employeeGoals(p.name).rated||def.rated),0),rate:people.length?people.reduce((s,p)=>s+(employeeGoals(p.name).rate||def.rate),0)/people.length:def.rate,final:people.length?people.reduce((s,p)=>s+(employeeGoals(p.name).final||def.final),0)/people.length:def.final},rows=[['Atendimentos',d.att,t.att,fmt.int],['Avaliações',d.rated,t.rated,fmt.int],['Taxa',d.rate,t.rate,fmt.pct],['Média final',d.final,t.final,v=>fmt.dec(v,2)]];$('dashboardGoals').innerHTML=rows.map(([l,v,g,f])=>`<div class="dashboard-goal"><div><span>${l}</span><b>${f(v)} <small>/ ${f(g)}</small></b></div><div class="goal-track"><span style="width:${Math.min(100,g?v/g*100:0)}%"></span></div></div>`).join('')}
+function renderDashboardGoals(){const d=currentData(),people=activePeople(d.people||[]),def=state.settings.defaultGoals||{att:500,rated:100,rate:30,final:4.9},t={att:people.reduce((s,p)=>s+(employeeGoals(p.name).att||def.att),0),rated:people.reduce((s,p)=>s+(employeeGoals(p.name).rated||def.rated),0),rate:people.length?people.reduce((s,p)=>s+(employeeGoals(p.name).rate||def.rate),0)/people.length:def.rate,final:people.length?people.reduce((s,p)=>s+(employeeGoals(p.name).final||def.final),0)/people.length:def.final},rows=[['Atendimentos',d.att,t.att,fmt.int],['Avaliações',d.rated,t.rated,fmt.int],['Taxa',d.rate,t.rate,fmt.pct],['Média final',d.final,t.final,v=>fmt.dec(v,2)]];$('dashboardGoals').innerHTML=rows.map(([l,v,g,f])=>`<div class="dashboard-goal"><div><span>${l}</span><b>${f(v)} <small>/ ${f(g)}</small></b></div><div class="goal-track"><span style="width:${Math.min(100,g?v/g*100:0)}%"></span></div></div>`).join('')}
 function renderDashboardCharts(){const months=state.period.months;chart('monthly',$('monthlyChart'),'line',{labels:months.map(x=>x.month),datasets:[{label:'Atendimentos',data:months.map(x=>x.people.reduce((s,p)=>s+p.att,0)),borderColor:'#8b5cf6',backgroundColor:'#8b5cf633',tension:.35,fill:true},{label:'Avaliações',data:months.map(x=>x.people.reduce((s,p)=>s+p.rated,0)),borderColor:'#22d3ee',tension:.35}]});const d=currentData(),rank=[...(d.people||[])].sort((a,b)=>b.att-a.att);chart('ranking',$('rankingChart'),'bar',{labels:rank.map(x=>x.name),datasets:[{label:'Atendimentos',data:rank.map(x=>x.att),backgroundColor:'#8b5cf6'}]},{indexAxis:'y',plugins:{legend:{display:false}}})}
 function renderTeam(){const d=currentData(),people=activePeople([...(d.people||[])]).sort((a,b)=>b.final-a.final);$('personSelect').innerHTML=people.map(x=>`<option>${x.name}</option>`).join('');$('teamGrid').innerHTML=people.map(x=>`<div class="card person-card" data-person="${x.name}"><div class="person-head">${avatar(x.name)}<div><div class="person-name">${x.name}</div><div class="muted">Média final ${fmt.dec(x.final)}</div></div></div><div class="mini-stats"><div class="mini"><span class="muted">Atendimentos</span><b>${fmt.int(x.att)}</b></div><div class="mini"><span class="muted">Avaliação</span><b>${fmt.pct(x.rate)}</b></div><div class="mini"><span class="muted">Avaliações</span><b>${fmt.int(x.rated)}</b></div><div class="mini"><span class="muted">Caixinha</span><b>${fmt.dec(x.box||0,1)}</b></div></div></div>`).join('');renderPerson(people[0]?.name);document.querySelectorAll('[data-person]').forEach(el=>el.addEventListener('click',()=>{$('personSelect').value=el.dataset.person;renderPerson(el.dataset.person)}))}
 function renderPerson(name){if(!name)return;const labels=state.period.months.map(x=>x.month),vals=state.period.months.map(m=>m.people.find(p=>p.name===name)?.att??null),finals=state.period.months.map(m=>m.people.find(p=>p.name===name)?.final??null);$('profileTitle').textContent=`Evolução de ${name}`;chart('person',$('personChart'),'line',{labels,datasets:[{label:'Atendimentos',data:vals,borderColor:'#8b5cf6',tension:.35,yAxisID:'y'},{label:'Média final',data:finals,borderColor:'#34d399',tension:.35,yAxisID:'y1'}]},{scales:{y1:{position:'right',min:0,max:5,ticks:{color:'#9aabc2'},grid:{drawOnChartArea:false}}}})}
@@ -377,7 +432,7 @@ function renderProfiles(){
   document.querySelectorAll('[data-profile-person]').forEach(card=>card.addEventListener('click',()=>{filter.value=card.dataset.profilePerson;renderProfiles()}));
 }
 function renderHall(){const d=currentData(),people=activePeople(d.people||[]),defs=[['📞','Maior atendimento',[...people].sort((a,b)=>b.att-a.att)[0],x=>fmt.int(x.att)],['⭐','Melhor nota',[...people].sort((a,b)=>b.final-a.final)[0],x=>fmt.dec(x.final)],['📈','Melhor taxa',[...people].sort((a,b)=>b.rate-a.rate)[0],x=>fmt.pct(x.rate)],['🎁','Campeão da caixinha',[...people].sort((a,b)=>(b.box||0)-(a.box||0))[0],x=>fmt.dec(x.box||0,1)+' pts']];$('hallGrid').innerHTML=defs.map(([ico,title,p,fn])=>p?`<div class="card hall"><div class="trophy">${ico}</div><div class="muted">${title}</div>${avatar(p.name)}<div class="winner">${p.name}</div><div class="score">${fn(p)}</div></div>`:'').join('')}
-function renderBox(){const m=state.month==null?state.period.months[state.period.months.length-1]:state.period.months[state.month],rank=activePeople([...(m?.people||[])]).sort((a,b)=>b.box-a.box),order=[rank[1],rank[0],rank[2]],classes=['two','one','three'],medals=['🥈','🥇','🥉'];$('podium').innerHTML=order.map((p,i)=>p?`<div class="podium-item">${avatar(p.name)}<b>${p.name}</b><div class="muted">${fmt.dec(p.box,1)} pontos</div><div class="step ${classes[i]}"><div style="font-size:28px">${medals[i]}</div><b>${i===1?'1º':i===0?'2º':'3º'}</b></div></div>`:'').join('');$('boxRanking').innerHTML=rank.map((p,i)=>`<div class="rank-row"><div class="rank-pos">${i+1}º</div><div><b>${p.name}</b><div class="muted">${m.month}</div></div><b>${fmt.dec(p.box,1)}</b></div>`).join('')}
+function renderBox(){const m=state.month==null?state.period.months[state.period.months.length-1]:state.period.months[state.month],rank=activePeople([...(m?.people||[])],m?monthRange(state.period.year,m.monthIndex):selectedEmploymentRange()).sort((a,b)=>b.box-a.box),order=[rank[1],rank[0],rank[2]],classes=['two','one','three'],medals=['🥈','🥇','🥉'];$('podium').innerHTML=order.map((p,i)=>p?`<div class="podium-item">${avatar(p.name)}<b>${p.name}</b><div class="muted">${fmt.dec(p.box,1)} pontos</div><div class="step ${classes[i]}"><div style="font-size:28px">${medals[i]}</div><b>${i===1?'1º':i===0?'2º':'3º'}</b></div></div>`:'').join('');$('boxRanking').innerHTML=rank.map((p,i)=>`<div class="rank-row"><div class="rank-pos">${i+1}º</div><div><b>${p.name}</b><div class="muted">${m.month}</div></div><b>${fmt.dec(p.box,1)}</b></div>`).join('')}
 function renderBonus(){const p=state.period,people=activePeople([...(p.trim.people||[])]).sort((a,b)=>b.bonus-a.bonus),bonusTotal=people.reduce((sum,x)=>sum+num(x.bonus),0);$('bonusKpis').innerHTML=[metric('Total distribuído',fmt.money(bonusTotal)),metric('Média por colaborador',fmt.money(people.length?bonusTotal/people.length:0)),metric('Maior bonificação',fmt.money(people[0]?.bonus||0)),metric('Colaboradores',fmt.int(people.filter(x=>x.bonus>0).length)),metric('Período',p.label)].join('');chart('bonus',$('bonusChart'),'bar',{labels:people.map(x=>x.name),datasets:[{label:'Bonificação',data:people.map(x=>x.bonus),backgroundColor:'#34d399'}]},{indexAxis:'y',plugins:{legend:{display:false}}});chart('bonusHistory',$('bonusHistoryChart'),'line',{labels:state.periods.map(x=>x.label),datasets:[{label:'Total distribuído',data:state.periods.map(x=>(x.trim?.people||[]).filter(p=>!isIgnoredEmployeeName(p.name)).reduce((sum,p)=>sum+num(p.bonus),0)),borderColor:'#fbbf24',backgroundColor:'#fbbf2433',fill:true,tension:.3}]})}
 
 
@@ -447,12 +502,14 @@ function renderEvolutionFilters(){
   select.innerHTML='<option value="all">Equipe completa</option>'+names.map(name=>`<option value="${name}">${name}</option>`).join('');
   if(current==='all'||names.includes(current))select.value=current;
 }
-function personMetricFromMonth(month,personName,metric){
+function personMetricFromMonth(month,personName,metric,period=null){
+  const range=monthRange(period?.year||state.period?.year,month.monthIndex);
   if(personName==='all'){
-    const aggregate=aggregateMonths([month]);
+    const aggregate=aggregateMonths([month],period||state.period);
     if(metric==='box')return (month.people||[]).reduce((sum,p)=>sum+num(p.box),0);
     return num(aggregate[metric]);
   }
+  if(!employedDuring(personName,range))return null;
   const person=(month.people||[]).find(p=>p.name===personName);
   return person?num(person[metric]):null;
 }
@@ -477,7 +534,7 @@ function evolutionSeries(){
         if(!(month.people||[]).length)continue;
         points.push({
           label:`${month.month}/${period.year}`,
-          value:personMetricFromMonth(month,person,metric),
+          value:personMetricFromMonth(month,person,metric,period),
           year:period.year,
           order:month.monthIndex
         });
@@ -622,7 +679,7 @@ function renderTeamAdmin(){
         <label>Data de desligamento<input type="date" class="control admin-termination" value="${employeeProfile(e.name).terminationDate||''}"></label>
         <label>Meta atendimentos<input type="number" class="control admin-goal-att" value="${g.att||500}"></label>
         <label>Meta avaliações<input type="number" class="control admin-goal-rated" value="${g.rated||100}"></label>
-        <label>Meta taxa (%)<input type="number" step="0.01" class="control admin-goal-rate" value="${g.rate||25}"></label>
+        <label>Meta taxa (%)<input type="number" step="0.01" class="control admin-goal-rate" value="${g.rate||30}"></label>
         <label>Meta média final<input type="number" step="0.01" class="control admin-goal-final" value="${g.final||4.9}"></label>
         <label>Meta Caixinha<input type="number" step="0.01" class="control admin-goal-box" value="${g.box||500}"></label>
       </div>
