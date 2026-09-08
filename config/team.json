@@ -26,7 +26,7 @@
       "name": "Luiz",
       "displayName": "Luiz",
       "role": "Analista de Suporte II",
-      "status": "active",
+      "status": "inactive",
       "photo": "assets/img/team/luiz.jpg",
       "goals": {
         "att": 500,
@@ -86,7 +86,7 @@
       "name": "Gabriel",
       "displayName": "Gabriel",
       "role": "Analista de Suporte",
-      "status": "active",
+      "status": "inactive",
       "photo": "assets/img/team/gabriel.jpg",
       "goals": {
         "att": 500,
