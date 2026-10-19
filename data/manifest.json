@@ -9,6 +9,10 @@
   },
   {
     "path": "data/2026/3trim2026.xlsx",
-    "label": "3º Trimestre 2026 (parcial)"
+    "label": "3º Trimestre 2026"
+  }
+  {
+    "path": "data/2026/4trim2026.xlsx",
+    "label": "4º Trimestre 2026 (parcial)"
   }
 ]
