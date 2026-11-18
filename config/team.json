@@ -159,6 +159,26 @@
       "birthDayMonth": "16/05",
       "terminationDate": null,
       "achievements": []
+    },
+    {
+      "id": "1001",
+      "ramal": "1001",
+      "name": "Wilton",
+      "displayName": "Wilton",
+      "role": "Analista de Suporte",
+      "status": "active",
+      "photo": "assets/img/team/wilton.jpg",
+      "goals": {
+        "att": 500,
+        "rated": 100,
+        "rate": 30,
+        "final": 4.9,
+        "box": 500
+      },
+      "admissionDate": "2026-11-18",
+      "birthDayMonth": "24/10",
+      "terminationDate": null,
+      "achievements": []
     }
   ]
 }
