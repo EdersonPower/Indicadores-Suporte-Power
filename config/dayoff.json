@@ -11,5 +11,12 @@
     "Quando o colaborador puder escolher a data da folga, ela deve ser negociada com o seu gestor com pelo menos 1 semana de antecedência.",
     "Terão direito a esse benefício todos os colaboradores que já tiverem superado o período de experiência."
   ],
-  "exceptions": []
+  "exceptions": [
+    {
+      "name": "Dayane",
+      "year": 2026,
+      "date": "2026-08-10",
+      "note": "Aniversário durante as férias; folga no primeiro dia trabalhado após o retorno"
+    }
+  ]
 }
