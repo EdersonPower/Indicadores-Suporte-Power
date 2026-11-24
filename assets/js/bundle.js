@@ -66,7 +66,7 @@ function bindManagerAuth(){
 
 const $=id=>document.getElementById(id);
 const fmt={int:v=>new Intl.NumberFormat('pt-BR',{maximumFractionDigits:0}).format(v||0),dec:(v,d=2)=>new Intl.NumberFormat('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}).format(v||0),pct:v=>`${new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v||0)}%`,money:v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0)};
-const titles={dashboard:['Dashboard Executivo','Visão consolidada da operação'],team:['Equipe','Desempenho individual'],profiles:['Perfil & Conquistas','Pessoas, tempo de casa e reconhecimentos'],hall:['Hall da Fama','Destaques e reconhecimentos'],box:['Caixinha','Ranking mensal da dinâmica'],bonus:['Bonificação','Acompanhamento financeiro'],voice:['Voz do Cliente','Comentários e percepção dos clientes'],history:['Evolução','Comparativos históricos'],manager:['Central do Gestor','Metas, alertas e destaques'],settings:['Gestão da Equipe','Cadastro, status e metas'],audit:['Auditoria','Conferência das regras de negócio']};
+const titles={dashboard:['Dashboard Executivo','Visão consolidada da operação'],team:['Equipe','Desempenho individual'],dayoff:['Day Off','Folgas de aniversário previstas'],profiles:['Perfil & Conquistas','Pessoas, tempo de casa e reconhecimentos'],hall:['Hall da Fama','Destaques e reconhecimentos'],box:['Caixinha','Ranking mensal da dinâmica'],bonus:['Bonificação','Acompanhamento financeiro'],voice:['Voz do Cliente','Comentários e percepção dos clientes'],history:['Evolução','Comparativos históricos'],manager:['Central do Gestor','Metas, alertas e destaques'],settings:['Gestão da Equipe','Cadastro, status e metas'],audit:['Auditoria','Conferência das regras de negócio']};
 function slug(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'')}
 function avatar(name,size=''){const emp=employeeByName(name);const display=emp?.displayName||name;const initial=(display||'?').trim().charAt(0).toUpperCase();const file=emp?.photo||`assets/img/team/${slug(name)}.jpg`;return `<div class="avatar ${size}"><img src="${file}" alt="${display}" onerror="this.style.display='none';this.parentElement.dataset.fallback='${initial}'"><span class="avatar-fallback">${initial}</span></div>`}
 function metric(label,value,delta=''){return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div><div class="delta">${delta||'Período selecionado'}</div></div>`}
@@ -455,12 +455,14 @@ async function loadPeriodsFromJsonFallback(){
   return normalizePeriods(await response.json());
 }
 async function loadDefault(){clearStatus();try{
-  const [teamResponse,settingsResponse]=await Promise.all([
+  const [teamResponse,settingsResponse,dayoffResponse]=await Promise.all([
     fetch(`config/team.json?v=${Date.now()}`,{cache:'no-store'}),
-    fetch(`config/settings.json?v=${Date.now()}`,{cache:'no-store'})
+    fetch(`config/settings.json?v=${Date.now()}`,{cache:'no-store'}),
+    fetch(`config/dayoff.json?v=${Date.now()}`,{cache:'no-store'}).catch(()=>null)
   ]);
   if(teamResponse.ok)state.teamConfig=await teamResponse.json();
   if(settingsResponse.ok)state.settings=await settingsResponse.json();
+  try{if(dayoffResponse&&dayoffResponse.ok)state.dayoff=await dayoffResponse.json()}catch(e){console.warn('Day Off: config/dayoff.json inválido',e)}
   loadSavedTeam();
   try{
     state.periods=await loadPeriodsFromManifest();
@@ -834,9 +836,82 @@ function collectTeamAdmin(){
 }
 
 function renderAudit(){const rows=[];for(const p of state.periods){for(const m of p.months){for(const a of m.audit||[])rows.push(`<tr><td>${p.fileName}</td><td>${m.sheet} · ${a.name}</td><td class="${a.status==='ok'?'diag-ok':'diag-warn'}">${a.status==='ok'?'OK':'Atenção'}</td><td>${a.detail}</td></tr>`);if(!(m.audit||[]).length)rows.push(`<tr><td>${p.fileName}</td><td>${m.sheet}</td><td class="diag-warn">Atenção</td><td>Nenhum atendente identificado</td></tr>`)}}$('auditBody').innerHTML=rows.join('')}
-function renderAll(){try{renderExecutiveHero();renderKpis();renderEmployeeOfMonth();renderInsights();renderDashboardReviews();renderDashboardGoals();renderDashboardCharts();renderTeam();renderProfiles();renderHall();renderBox();renderBonus();renderVoice();renderHistory();renderManager();renderTeamAdmin();renderAudit();clearStatus()}catch(err){console.error(err);showStatus(`<b>Erro ao montar o dashboard.</b> ${err.message}`)}}
-function showPage(name){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===`page-${name}`));document.querySelectorAll('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.page===name));$('pageTitle').textContent=titles[name][0];$('pageSubtitle').textContent=titles[name][1];$('sidebar').classList.remove('open')}
-function bind(){ $('periodSelect').addEventListener('change',e=>selectPeriod(Number(e.target.value)));$('monthSelect').addEventListener('change',e=>{state.month=e.target.value==='all'?null:Number(e.target.value);renderAll()});$('personSelect').addEventListener('change',e=>renderPerson(e.target.value));$('profilePersonFilter').addEventListener('change',renderProfiles);$('voicePerson').addEventListener('change',renderVoice);$('evolutionMode').addEventListener('change',renderHistory);$('evolutionMetric').addEventListener('change',renderHistory);$('evolutionPerson').addEventListener('change',renderHistory);$('saveTeamBtn').addEventListener('click',()=>{collectTeamAdmin();saveTeamConfig();renderAll()});$('nav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(b)requestPage(b.dataset.page)});$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));$('fileInput').addEventListener('change',async e=>{try{
+/* ===================== Day Off de aniversário (v1.3.0) =====================
+   Calcula a folga de aniversário de cada colaborador ativo pelas regras de
+   config/dayoff.json. Exceções (data escolhida, férias, sem direito) ficam em
+   "exceptions": {"name":"Dayane","year":2026,"date":"2026-07-13","note":"..."}
+   ou {"name":"X","year":2026,"noDayOff":true,"note":"..."}. */
+const DAYOFF_WEEK=['dom','seg','ter','qua','qui','sex','sáb'];
+const DAYOFF_FIRST_YEAR=2026;
+function dayoffEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function dayoffDate(y,m,d){return new Date(y,m-1,d,12,0,0)}
+function dayoffAdd(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
+function dayoffKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function dayoffFmt(d,withYear=false){return `${DAYOFF_WEEK[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}${withYear?'/'+d.getFullYear():''}`}
+function dayoffEaster(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),month=Math.floor((h+l-7*m+114)/31),day=((h+l-7*m+114)%31)+1;return dayoffDate(y,month,day)}
+function dayoffHolidays(y){
+  const list=[[1,1,'Confraternização Universal'],[4,21,'Tiradentes'],[5,1,'Dia do Trabalho'],[9,7,'Independência do Brasil'],[10,12,'Nossa Senhora Aparecida'],[11,2,'Finados'],[11,15,'Proclamação da República'],[11,20,'Dia da Consciência Negra'],[12,25,'Natal']].map(([m,d,n])=>({date:dayoffDate(y,m,d),name:n}));
+  list.push({date:dayoffAdd(dayoffEaster(y),-2),name:'Sexta-feira Santa'});
+  (state.dayoff?.extraHolidays||[]).forEach(h=>{const d=parseIsoDate(h.date);if(d&&d.getFullYear()===y)list.push({date:d,name:h.name||'Feriado'})});
+  return list.sort((a,b)=>a.date-b.date);
+}
+function dayoffHolidayName(d){const k=dayoffKey(d);return dayoffHolidays(d.getFullYear()).find(h=>dayoffKey(h.date)===k)?.name||''}
+function dayoffIsWorkday(d){const w=d.getDay();return w>0&&w<6&&!dayoffHolidayName(d)}
+function dayoffPrevWorkday(d){let x=dayoffAdd(d,-1);while(!dayoffIsWorkday(x))x=dayoffAdd(x,-1);return x}
+function dayoffNextWorkday(d){let x=dayoffAdd(d,1);while(!dayoffIsWorkday(x))x=dayoffAdd(x,1);return x}
+function dayoffToday(){const n=new Date();return dayoffDate(n.getFullYear(),n.getMonth()+1,n.getDate())}
+function dayoffFor(emp,year,today=dayoffToday()){
+  const cfg=state.dayoff||{},bd=parseBirthDayMonth(emp.birthDayMonth),adm=parseIsoDate(emp.admissionDate);
+  const base={emp,year,dates:[],note:''};
+  if(!bd)return {...base,status:'missing',label:'Aniversário não cadastrado'};
+  const birthday=dayoffDate(year,bd.month,bd.day);base.birthday=birthday;
+  const exc=(cfg.exceptions||[]).find(x=>Number(x.year)===year&&normalizeEmployeeName(x.name)===normalizeEmployeeName(emp.name));
+  if(exc?.noDayOff)return {...base,status:'none',label:'Sem day off',note:exc.note||''};
+  if(exc?.date){const d=parseIsoDate(exc.date);if(d)return {...base,dates:[d],status:d<today?'done':'set',label:d<today?'Realizado':'Data definida',note:exc.note||'Data definida com o gestor'}}
+  if(adm&&adm>birthday)return {...base,status:'na',label:'Admitido após o aniversário',note:`Admissão em ${formatDateBR(emp.admissionDate)}`};
+  const days=Number(cfg.experienceDays)||90;
+  if(adm){const expEnd=dayoffAdd(adm,days-1);if(birthday<=expEnd)return {...base,status:'exp',label:'Em período de experiência',note:`Experiência até ${dayoffFmt(expEnd,true)}`}}
+  const hol=dayoffHolidayName(birthday);
+  if(dayoffIsWorkday(birthday)){const past=birthday<today;return {...base,dates:[birthday],status:past?'done':'scheduled',label:past?'Realizado':'No dia do aniversário'}}
+  let options;
+  if(hol&&birthday.getDay()>0&&birthday.getDay()<6){options=[dayoffPrevWorkday(birthday),dayoffNextWorkday(birthday)];base.note=`Aniversário no feriado: ${hol}`}
+  else{const w=birthday.getDay();let fri=dayoffAdd(birthday,w===6?-1:-2),mon=dayoffAdd(birthday,w===6?2:1);if(!dayoffIsWorkday(fri))fri=dayoffPrevWorkday(fri);if(!dayoffIsWorkday(mon))mon=dayoffNextWorkday(mon);options=[fri,mon];base.note=`Aniversário no ${w===6?'sábado':'domingo'}${hol?' ('+hol+')':''}`}
+  const deadline=dayoffAdd(options[0],-7);
+  if(options[1]<today)return {...base,dates:options,status:'done-open',label:'Já passou',note:'Data escolhida não informada'};
+  return {...base,dates:options,status:'choose',label:'A combinar com o gestor',deadline,note:`${base.note} · combinar até ${dayoffFmt(deadline,true)}`};
+}
+function dayoffRoster(){return (state.teamConfig.employees||[]).filter(e=>e.status!=='inactive'&&!e.terminationDate&&!isIgnoredEmployeeName(e.name)).sort((a,b)=>(a.displayName||a.name).localeCompare(b.displayName||b.name,'pt-BR'))}
+function dayoffYears(){const now=new Date().getFullYear(),set=new Set();for(let y=DAYOFF_FIRST_YEAR;y<=Math.max(now+1,DAYOFF_FIRST_YEAR+1);y++)set.add(y);(state.dayoff?.exceptions||[]).forEach(x=>set.add(Number(x.year)));return [...set].filter(Boolean).sort()}
+function renderDayOff(){
+  const sel=$('dayoffYear');if(!sel)return;
+  const years=dayoffYears(),cur=Number(sel.value)||new Date().getFullYear();
+  sel.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');sel.value=String(years.includes(cur)?cur:years[0]);
+  const year=Number(sel.value),today=dayoffToday(),roster=dayoffRoster();
+  const rows=roster.map(e=>dayoffFor(e,year,today)).sort((a,b)=>(a.dates[0]||a.birthday||0)-(b.dates[0]||b.birthday||0));
+  // próximo day off (qualquer ano)
+  const upcoming=[];for(const y of years)for(const e of roster){const r=dayoffFor(e,y,today);if(['scheduled','set','choose'].includes(r.status))upcoming.push(r)}
+  upcoming.sort((a,b)=>a.dates[0]-b.dates[0]);const next=upcoming[0];
+  const daysTo=d=>Math.round((d-today)/86400000);
+  const count=s=>rows.filter(r=>s.includes(r.status)).length;
+  $('dayoffKpis').innerHTML=[
+    ['Próximo day off',next?`${next.emp.displayName||next.emp.name}`:'—',next?`${next.dates.map(d=>dayoffFmt(d,true)).join(' ou ')} · faltam ${daysTo(next.dates[0])} dias`:'Nenhum previsto'],
+    [`Com direito em ${year}`,String(rows.filter(r=>r.dates.length).length),`de ${rows.length} colaboradores ativos`],
+    ['A combinar',String(count(['choose'])),'Aniversário em fim de semana ou feriado'],
+    ['Realizados',String(count(['done','done-open'])),`Datas que já passaram em ${year}`]
+  ].map(([l,v,s])=>`<div class="metric"><div class="label">${l}</div><div class="value">${dayoffEsc(v)}</div><div class="delta">${dayoffEsc(s)}</div></div>`).join('');
+  const badge={scheduled:'ok',set:'ok',choose:'warn',done:'muted','done-open':'muted',na:'muted',exp:'muted',none:'muted',missing:'warn'};
+  $('dayoffBody').innerHTML=rows.length?rows.map(r=>{const e=r.emp,name=e.displayName||e.name;
+    const off=r.dates.length?r.dates.map(d=>`<b>${dayoffFmt(d)}</b>`).join(' <span class="muted">ou</span> '):'<span class="muted">—</span>';
+    const left=(['scheduled','set','choose'].includes(r.status)&&r.dates[0])?`<div class="muted">faltam ${daysTo(r.dates[0])} dias</div>`:'';
+    return `<tr><td><div class="dayoff-person">${avatar(e.name)}<div><b>${dayoffEsc(name)}</b><div class="muted">${dayoffEsc(e.role||'')}</div></div></div></td><td>${dayoffEsc(formatDateBR(e.admissionDate))}</td><td>${r.birthday?dayoffFmt(r.birthday):'—'}</td><td>${off}${left}</td><td><span class="dayoff-badge ${badge[r.status]||'muted'}">${dayoffEsc(r.label)}</span></td><td class="dayoff-note">${dayoffEsc(r.note)}</td></tr>`}).join(''):'<tr><td colspan="6" class="empty">Nenhum colaborador ativo cadastrado.</td></tr>';
+  const cfg=state.dayoff||{};
+  $('dayoffRules').innerHTML=`<p>${dayoffEsc(cfg.summary||'')}</p><ul>${(cfg.rules||[]).map(r=>`<li>${dayoffEsc(r)}</li>`).join('')}</ul><p class="muted">Período de experiência considerado: ${Number(cfg.experienceDays)||90} dias a partir da admissão.</p>`;
+  $('dayoffHolidays').innerHTML=dayoffHolidays(year).map(h=>`<li><b>${dayoffFmt(h.date)}</b> ${dayoffEsc(h.name)}</li>`).join('');
+  $('dayoffHolidayYear').textContent=year;
+}
+function renderAll(){try{renderDayOff();renderExecutiveHero();renderKpis();renderEmployeeOfMonth();renderInsights();renderDashboardReviews();renderDashboardGoals();renderDashboardCharts();renderTeam();renderProfiles();renderHall();renderBox();renderBonus();renderVoice();renderHistory();renderManager();renderTeamAdmin();renderAudit();clearStatus()}catch(err){console.error(err);showStatus(`<b>Erro ao montar o dashboard.</b> ${err.message}`)}}
+function showPage(name){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===`page-${name}`));document.querySelectorAll('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.page===name));document.querySelectorAll('.nav-group').forEach(g=>{const on=!!g.querySelector(`.nav-sub [data-page="${name}"]`);g.querySelector('.nav-parent')?.classList.toggle('active',on);g.classList.toggle('open',on)});$('pageTitle').textContent=titles[name][0];$('pageSubtitle').textContent=titles[name][1];$('sidebar').classList.remove('open')}
+function bind(){ $('periodSelect').addEventListener('change',e=>selectPeriod(Number(e.target.value)));$('monthSelect').addEventListener('change',e=>{state.month=e.target.value==='all'?null:Number(e.target.value);renderAll()});$('personSelect').addEventListener('change',e=>renderPerson(e.target.value));$('profilePersonFilter').addEventListener('change',renderProfiles);$('voicePerson').addEventListener('change',renderVoice);$('evolutionMode').addEventListener('change',renderHistory);$('evolutionMetric').addEventListener('change',renderHistory);$('evolutionPerson').addEventListener('change',renderHistory);$('saveTeamBtn').addEventListener('click',()=>{collectTeamAdmin();saveTeamConfig();renderAll()});$('dayoffYear')?.addEventListener('change',renderDayOff);$('nav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(b)requestPage(b.dataset.page)});$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));$('fileInput').addEventListener('change',async e=>{try{
   const results=[];
   for(const f of e.target.files){
     const parsed=parseWorkbook(await f.arrayBuffer(),f.name);

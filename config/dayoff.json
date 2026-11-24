@@ -1,0 +1,22 @@
+{
+  "title": "Day off de aniversário",
+  "summary": "Colaborador pode ter um dia de folga no seu aniversário como um presente.",
+  "experienceDays": 90,
+  "holidays": "nacionais",
+  "rules": [
+    "Se o aniversário cair durante a semana, a folga será o dia do aniversário.",
+    "Se o aniversário cair no final de semana, poderá optar pela folga na sexta-feira anterior ou na segunda-feira posterior ao dia do aniversário.",
+    "Se o aniversário cair em um feriado, poderá optar pela folga em um dia trabalhado imediatamente anterior ou imediatamente posterior ao feriado.",
+    "Se o aniversário cair durante período de férias ou outro tipo de afastamento, a folga será no dia trabalhado imediatamente posterior ao retorno.",
+    "Quando o colaborador puder escolher a data da folga, ela deve ser negociada com o seu gestor com pelo menos 1 semana de antecedência.",
+    "Terão direito a esse benefício todos os colaboradores que já tiverem superado o período de experiência."
+  ],
+  "exceptions": [
+    {
+      "name": "Dayane",
+      "year": 2026,
+      "date": "2026-08-10",
+      "note": "Aniversário durante as férias; folga no primeiro dia trabalhado após o retorno"
+    }
+  ]
+}
